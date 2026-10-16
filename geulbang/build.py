@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 JS_ORDER = [
     "util.js", "zip.js", "htmlbuild.js", "docx-import.js", "model.js", "docx-export.js",
-    "doc-import.js", "rtf-import.js", "html-io.js", "editor.js", "app.js",
+    "doc-import.js", "rtf-import.js", "html-io.js", "editor.js", "pages.js", "app.js",
 ]
 
 

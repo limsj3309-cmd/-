@@ -9,7 +9,7 @@ SetCompressor /SOLID lzma
 !define APP_EXE "Geulbang.exe"
 !define PROGID "HyunseoGeulbang.Document"
 !ifndef VERSION
-  !define VERSION "1.0.0"
+  !define VERSION "1.1.0"
 !endif
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}"
 

@@ -8,6 +8,7 @@ export LANG=C.UTF-8 LC_ALL=C.UTF-8
 export NODE_PATH="${NODE_PATH:-$(npm root -g)}"
 mkdir -p "$OUT/edit" "$OUT/samples" "$OUT/ui"
 node tests/format-test.js
+node tests/pages-test.js "$OUT"
 node tests/ui-test.js "$OUT/ui"
 node tests/edit-test.js "$OUT/edit"
 python3 tests/inspect_docx.py "$OUT/edit/edited.docx"

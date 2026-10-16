@@ -197,6 +197,9 @@ const HtmlIO = (() => {
       pb.replaceWith(br);
     });
     clone.querySelectorAll('[contenteditable]').forEach((e) => e.removeAttribute('contenteditable'));
+    clone.querySelectorAll('[data-pg-tall]').forEach((e) => e.removeAttribute('data-pg-tall'));
+    clone.querySelectorAll('[style*="--pg-"]').forEach((e) => { e.style.removeProperty('--pg-mt'); e.style.removeProperty('--pg-pb'); });
+    clone.querySelectorAll('.page-break').forEach((e) => { e.style.height = ''; });
     clone.querySelectorAll('table').forEach((t) => {
       t.setAttribute('border', '1');
       t.setAttribute('cellspacing', '0');

@@ -83,7 +83,14 @@ const DocModel = (() => {
           return null;
         }
       }
-      return { t: 'img', src, wPx: Math.max(1, r.width || img.width || 100), hPx: Math.max(1, r.height || img.height || 100) };
+      let w = r.width || img.width || 100, h = r.height || img.height || 100;
+      // 쪽 높이에 맞춰 줄어든 그림(object-fit: contain)은 원래 비율로 계산
+      if (img.naturalWidth && img.naturalHeight) {
+        const k = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+        w = img.naturalWidth * k;
+        h = img.naturalHeight * k;
+      }
+      return { t: 'img', src, wPx: Math.max(1, w), hPx: Math.max(1, h) };
     }
 
     function collectRuns(nodes, block, baseEl, out) {

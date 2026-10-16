@@ -36,7 +36,9 @@ function createEditor(fragment) {
     }
   }
   ed.querySelectorAll('.page-break').forEach((d) => { d.setAttribute('contenteditable', 'false'); d.textContent = ''; });
-  $('page').replaceChildren(ed);
+  const old = $('editor');
+  if (old) old.replaceWith(ed);
+  else $('page').appendChild(ed);
   App.editor = ed;
   App.savedRange = null;
   bindEditor(ed);
@@ -46,6 +48,7 @@ function createEditor(fragment) {
   r.setStart(firstTextPos(ed), 0);
   r.collapse(true);
   App.savedRange = r;
+  Pages.paginate();
   return ed;
 }
 
@@ -111,6 +114,7 @@ function selectedBlocks() {
 }
 
 function markDirty() {
+  Pages.paginate();
   if (!App.dirty) {
     App.dirty = true;
     updateTitle();
@@ -592,9 +596,12 @@ function bindEditor(ed) {
   ed.addEventListener('input', () => {
     fixFontSizes();
     normalizePageBreaks();
-    if (!ed.firstChild) ed.innerHTML = '<p><br></p>';
+    if (!ed.firstChild) ed.innerHTML = '<div><br></div>';
     markDirty();
+    Pages.revealCaret();
   });
+  // 그림이 늦게 읽히면 쪽을 다시 나눔
+  ed.addEventListener('load', () => Pages.schedule(), true);
   ed.addEventListener('keydown', onEditorKey);
   ed.addEventListener('paste', onPaste);
   ed.addEventListener('click', (e) => {

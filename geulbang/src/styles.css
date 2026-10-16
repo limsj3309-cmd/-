@@ -86,8 +86,21 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 /* 작업 영역과 종이 */
 .workspace { flex: 1; overflow: auto; padding: 24px 16px 48px; }
-.page { width: 210mm; min-height: 297mm; margin: 0 auto; background: #fff; color: #000; box-shadow: var(--shadow); padding: 25.4mm; zoom: var(--zoom, 1); }
-.editor { outline: none; min-height: calc(297mm - 50.8mm); white-space: pre-wrap; overflow-wrap: break-word; tab-size: 48px; -moz-tab-size: 48px;
+/* 쪽 보기: 용지(.sheet)는 뒤에, 글(.page)은 가운데, 쪽 경계 가림막(.masks)은 위에 */
+.pages { position: relative; width: 210mm; height: 297mm; margin: 0 auto; zoom: var(--zoom, 1); }
+.sheets { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.sheet { height: 297mm; margin-bottom: 24px; background: #fff; box-shadow: var(--shadow); }
+.page { position: relative; z-index: 1; display: flow-root; padding: 25.4mm; color: #000; }
+.pg-floats > div { float: left; clear: left; }
+.pg-floats > .pg-a { width: 0; }
+.pg-floats > .pg-b { width: 100%; }
+.masks { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.pg-mask { position: absolute; left: 0; right: 0;
+  background: linear-gradient(to bottom, #fff 0 25.4mm, var(--bg) 25.4mm calc(25.4mm + 24px), #fff calc(25.4mm + 24px) 100%); }
+.pg-num { position: absolute; left: 0; right: 0; text-align: center; transform: translateY(-50%); color: #8a929c; font: 11px var(--ui-font); }
+@property --pg-mt { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --pg-pb { syntax: '<length>'; inherits: false; initial-value: 0px; }
+.editor { outline: none; white-space: pre-wrap; overflow-wrap: break-word; tab-size: 48px; -moz-tab-size: 48px;
   font-family: "맑은 고딕", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
   font-size: 11pt; line-height: 1.38; color: #000; caret-color: #000; }
 .editor p, .editor div { margin: 0 0 6pt; }
@@ -100,16 +113,16 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .editor ul { list-style-type: disc; } .editor ul ul { list-style-type: circle; } .editor ul ul ul { list-style-type: square; }
 .editor ol { list-style-type: decimal; } .editor ol ol { list-style-type: lower-alpha; } .editor ol ol ol { list-style-type: lower-roman; }
 .editor ol ol ol ol { list-style-type: decimal; }
-.editor table { border-collapse: collapse; width: 100%; margin: 0 0 6pt; table-layout: fixed; }
-.editor td, .editor th { border: 1px solid #000; padding: 2px 7px; vertical-align: top; min-width: 20px; }
+.editor table { border-collapse: collapse; width: 100%; margin: var(--pg-mt, 0px) 0 6pt; table-layout: fixed; }
+.editor td, .editor th { border: 1px solid #000; padding: 2px 7px calc(2px + var(--pg-pb, 0px)); vertical-align: top; min-width: 20px; }
 .editor td p, .editor th p, .editor td div, .editor th div { margin: 0; }
 .editor td.cell-sel, .editor th.cell-sel { background-color: rgba(37, 99, 235, .08); }
-.editor img { max-width: 100%; height: auto; vertical-align: bottom; }
+.editor img { max-width: 100%; max-height: calc(297mm - 50.8mm - 4px); height: auto; object-fit: contain; vertical-align: bottom; }
 .editor img.sel-img { outline: 2px solid #2563eb; outline-offset: 1px; }
 .editor a { color: #0563c1; text-decoration: underline; }
 .editor blockquote { margin: 0 0 0 40px; padding: 0; border: none; }
-.editor .page-break { position: relative; height: 0; border-top: 1px dashed #9aa3ae; margin: 18px 0; user-select: none; cursor: default; }
-.editor .page-break::after { content: "쪽 나누기"; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); background: #fff; color: #7a828d; font-size: 11px; padding: 0 8px; font-family: var(--ui-font); }
+.editor .page-break { position: relative; height: 0; border-top: 1px dashed #9aa3ae; margin: 0; user-select: none; cursor: default; }
+.editor .page-break::after { content: "쪽 나누기"; position: absolute; left: 50%; top: 6px; transform: translateX(-50%); background: #fff; color: #7a828d; font-size: 11px; padding: 0 8px; font-family: var(--ui-font); }
 .editor mark.find-hit { background: #ffe58a; color: inherit; }
 
 /* 그림 크기 조절 도구 */
@@ -142,8 +155,6 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 @media (max-width: 860px) {
   .workspace { padding: 12px 0 32px; }
-  .page { width: 100%; min-height: 0; padding: 16px; box-shadow: none; }
-  .editor { min-height: 60vh; }
   .btn .lbl { display: none; }
   .docname { max-width: 100%; margin-left: 0; width: 100%; order: 10; }
 }
@@ -154,9 +165,15 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
   #app { display: block; height: auto; }
   .titlebar, .toolbar, .findbar, .statusbar, .popup, .overlay, #toast { display: none !important; }
   .workspace { overflow: visible; padding: 0; }
-  .page { width: auto; min-height: 0; padding: 0; box-shadow: none; zoom: 1; }
-  .editor { min-height: 0; }
-  .editor .page-break { border: 0; margin: 0; break-after: page; page-break-after: always; }
+  .pages { width: auto; height: auto !important; zoom: 1; }
+  .sheets, .masks, .pg-floats { display: none !important; }
+  .page { display: block; padding: 0; }
+  .editor { orphans: 1; widows: 1; }
+  .editor table { --pg-mt: 0px !important; }
+  .editor table:not([data-pg-tall]) { break-inside: avoid; }
+  .editor td, .editor th { --pg-pb: 0px !important; }
+  .editor tr { break-inside: avoid; }
+  .editor .page-break { height: 0 !important; border: 0; margin: 0; break-after: page; page-break-after: always; }
   .editor .page-break::after { display: none; }
   .editor img.sel-img { outline: none; }
 }

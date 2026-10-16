@@ -221,11 +221,11 @@ async function importBytes(u8, name) {
 
 function withLayoutForExport(fn) {
   const prevZoom = App.zoom;
-  if (prevZoom !== 1) $('page').style.setProperty('--zoom', 1);
+  if (prevZoom !== 1) $('pages').style.setProperty('--zoom', 1);
   const img = selectedImg;
   if (img) img.classList.remove('sel-img');
   try { return fn(); } finally {
-    if (prevZoom !== 1) $('page').style.setProperty('--zoom', prevZoom);
+    if (prevZoom !== 1) $('pages').style.setProperty('--zoom', prevZoom);
     if (img && img.isConnected) img.classList.add('sel-img');
   }
 }
@@ -399,6 +399,13 @@ function loadDraft() {
 }
 
 // ---------- 상태 표시줄 ----------
+let pageStatusScheduled = false;
+function schedulePageStatus() {
+  if (pageStatusScheduled) return;
+  pageStatusScheduled = true;
+  requestAnimationFrame(() => { pageStatusScheduled = false; updatePageStatus(); });
+}
+
 let statsTimer = null;
 function scheduleStats() {
   clearTimeout(statsTimer);
@@ -411,19 +418,30 @@ function updateStats() {
   $('stChars').textContent = '글자 ' + fmt(text.replace(/\n/g, '').length);
   $('stCharsNoSp').textContent = '공백 제외 ' + fmt(text.replace(/\s/g, '').length);
   $('stWords').textContent = '단어 ' + fmt((text.match(/\S+/g) || []).length);
-  const pageH = (297 - 50.8) * (96 / 25.4);
-  const breaks = App.editor.querySelectorAll('.page-break').length;
-  const last = App.editor.lastElementChild;
-  const used = last ? (last.getBoundingClientRect().bottom - App.editor.getBoundingClientRect().top) / App.zoom : 0;
-  const pages = Math.max(1, Math.ceil((used - 1) / pageH) + breaks);
-  $('stPages').textContent = '약 ' + pages + '쪽';
+  updatePageStatus();
 }
 
-function setZoom(z) {
-  App.zoom = Math.max(0.5, Math.min(2, Math.round(z * 10) / 10));
-  $('page').style.setProperty('--zoom', App.zoom);
+function setZoom(z, keep) {
+  App.zoom = Math.max(0.3, Math.min(2, Math.round(z * 100) / 100));
+  $('pages').style.setProperty('--zoom', App.zoom);
   $('zoomVal').textContent = Math.round(App.zoom * 100) + '%';
-  try { localStorage.setItem('geulbang.zoom', App.zoom); } catch (e) { /* 무시 */ }
+  if (!keep) {
+    App.zoomFixed = true;
+    try { localStorage.setItem('geulbang.zoom', App.zoom); } catch (e) { /* 무시 */ }
+  }
+  updatePageStatus();
+}
+
+/** 화면이 용지보다 좁으면 용지 폭에 맞춰 축소 */
+function fitZoom() {
+  const avail = $('workspace').clientWidth - 16;
+  const fit = Math.floor((avail / Pages.PAGE_W_PX) * 100) / 100;
+  if (fit < 1 && (!App.zoomFixed || App.zoom > fit)) setZoom(fit, true);
+}
+
+function updatePageStatus() {
+  if (!App.editor) return;
+  $('stPages').textContent = `쪽 ${Pages.caretPage()} / ${Pages.count}`;
 }
 
 // ---------- 찾기/바꾸기 ----------
@@ -668,17 +686,35 @@ function init() {
     if (e.key === 'Escape') { e.preventDefault(); Find.close(); }
   });
 
-  $('zoomIn').addEventListener('click', () => setZoom(App.zoom + 0.1));
-  $('zoomOut').addEventListener('click', () => setZoom(App.zoom - 0.1));
-  let z = 1;
-  try { z = parseFloat(localStorage.getItem('geulbang.zoom')) || 1; } catch (e) { /* 무시 */ }
-  setZoom(z);
+  $('zoomIn').addEventListener('click', () => setZoom(Math.round(App.zoom * 10 + 1) / 10));
+  $('zoomOut').addEventListener('click', () => setZoom(Math.round(App.zoom * 10 - 1) / 10));
+  let z = 0;
+  try { z = parseFloat(localStorage.getItem('geulbang.zoom')) || 0; } catch (e) { /* 무시 */ }
+  if (z) setZoom(z); else setZoom(1, true);
+  fitZoom();
+  window.addEventListener('resize', fitZoom);
+
+  // 여백이나 본문 아래 빈 곳을 눌러도 가까운 줄로 커서 이동
+  $('pages').addEventListener('mousedown', (e) => {
+    if (!App.editor || App.editor.contains(e.target) || e.button !== 0) return;
+    e.preventDefault();
+    const er = App.editor.getBoundingClientRect();
+    const x = Math.min(Math.max(e.clientX, er.left + 2), er.right - 2);
+    const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, e.clientY) : null;
+    App.editor.focus({ preventScroll: true });
+    const s = getSelection();
+    s.removeAllRanges();
+    if (r && App.editor.contains(r.startContainer)) s.addRange(r);
+    else placeCaret(App.editor.lastElementChild || App.editor, true);
+  });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => Pages.paginate());
 
   document.addEventListener('selectionchange', () => {
     const s = getSelection();
     if (App.editor && s.rangeCount && App.editor.contains(s.anchorNode)) {
       App.savedRange = s.getRangeAt(0).cloneRange();
       scheduleToolbar();
+      schedulePageStatus();
     }
   });
   document.addEventListener('mousedown', (e) => {
