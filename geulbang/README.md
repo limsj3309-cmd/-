@@ -1,18 +1,29 @@
-# LiteWord — 인터넷 없이 쓰는 가벼운 워드프로세서
+# 현서의 글방 — 인터넷 없이 쓰는 가벼운 워드프로세서
 
-`LiteWord.html` 파일 하나(약 200KB)로 동작하는 문서 편집기입니다.
-설치가 필요 없고, 인터넷 연결 없이 쓸 수 있으며, Word 문서(.docx / .doc)를 열고 저장할 수 있습니다.
-한글과 영어를 모두 쓸 수 있습니다.
+설치 파일 하나(약 240KB)로 설치해 쓰는 문서 편집기입니다.
+인터넷 연결 없이 동작하고, Word 문서(.docx / .doc)를 열고 저장할 수 있으며, 한글과 영어를 모두 쓸 수 있습니다.
 
-## 실행 방법
+## 설치 (Windows 10 / 11)
 
-| 방법 | 설명 |
-| --- | --- |
-| `LiteWord.html` 더블클릭 | 기본 브라우저에서 열립니다. **Chrome 또는 Edge를 권장**합니다. |
-| `LiteWord-AppWindow.bat` 더블클릭 (Windows) | 주소창 없는 독립된 프로그램 창으로 엽니다 (Edge → Chrome 순서로 찾음). |
+1. [`dist/현서의글방_설치_v1.0.0.exe`](dist/) 를 내려받아 실행합니다.
+2. 관리자 권한 없이 현재 사용자 계정에 설치됩니다 (`%LOCALAPPDATA%\Programs\HyunseoGeulbang`).
+3. 설치 중 고를 수 있는 항목
+   - 바탕 화면 바로 가기
+   - docx·doc·rtf·txt 파일의 **'연결 프로그램'에 추가** (오른쪽 클릭 → 연결 프로그램 → 현서의 글방).
+     기존 기본 프로그램은 바뀌지 않습니다. 늘 이 프로그램으로 열고 싶으면 Windows 설정에서 기본 앱으로 지정하세요.
+4. 시작 메뉴 또는 바탕 화면의 **현서의 글방** 을 눌러 실행합니다.
 
-- 폴더째 USB 등에 복사해서 어느 PC에서나 쓸 수 있습니다.
-- 외부 서버나 인터넷 자료를 전혀 불러오지 않습니다. 문서는 내 PC에서만 처리됩니다.
+> 설치 파일에 디지털 서명이 없어서 처음 실행할 때 "Windows의 PC 보호" 창이 뜰 수 있습니다.
+> 이때 **[추가 정보] → [실행]** 을 누르면 설치가 진행됩니다.
+
+- 화면은 Windows에 기본으로 들어 있는 **Microsoft Edge**(없으면 Google Chrome)의 별도 창으로 띄웁니다.
+  평소 쓰는 브라우저와 설정이 섞이지 않도록 전용 프로필을 씁니다.
+- 제거: Windows 설정 → 앱 → 설치된 앱에서 '현서의 글방'을 제거합니다.
+
+### 설치 없이 쓰기
+
+`geulbang.html` 파일 하나만 있어도 됩니다. 더블클릭하면 브라우저(Chrome·Edge 권장)에서 바로 열리고,
+USB 등에 복사해서 어느 PC(맥·리눅스 포함)에서나 쓸 수 있습니다. 이 방식에서는 탐색기의 '연결 프로그램'으로 문서를 여는 기능만 빠집니다.
 
 ## 지원 형식
 
@@ -38,7 +49,8 @@ HTML 기반 형식입니다. 그림이 있는 문서나 서식을 정확히 유�
 - 글자 수(공백 포함/제외)·단어 수 표시, 확대/축소
 - 저장하지 않고 창을 닫았을 때 다음 실행 시 **자동 복구**
 - 파일을 창에 끌어 놓아서 열기
-- Chrome·Edge에서는 연 파일에 바로 덮어쓰기 저장(Ctrl+S). 다른 브라우저에서는 '다운로드' 폴더에 저장됩니다.
+- [열기]로 연 docx·txt 파일은 Ctrl+S로 바로 덮어씁니다. '연결 프로그램'으로 연 파일은 처음 저장할 때 위치를 한 번 고릅니다.
+- Chrome·Edge가 아닌 브라우저에서 `geulbang.html`을 열면 '다운로드' 폴더에 저장됩니다.
 
 ## 단축키
 
@@ -61,11 +73,13 @@ HTML 기반 형식입니다. 그림이 있는 문서나 서식을 정확히 유�
 
 ## 개발자용
 
-소스는 `src/`에 나뉘어 있고, `build.py`가 하나의 `LiteWord.html`로 묶습니다.
+소스는 `src/`에 나뉘어 있고, `build.py`가 하나의 `geulbang.html`로 묶습니다.
+설치 파일은 `installer/build-installer.sh`가 만듭니다 (리눅스에서 Windows용으로 교차 빌드).
 
 ```bash
-python3 build.py          # src/ → LiteWord.html
-bash tests/run-all.sh     # 자동 테스트 (Node.js + Playwright + Chromium, 샘플 변환에는 python-docx·LibreOffice 필요)
+python3 build.py                       # src/ → geulbang.html
+installer/build-installer.sh           # → dist/현서의글방_설치_v1.0.0.exe  (NSIS 3, mingw-w64 필요)
+bash tests/run-all.sh                  # 자동 테스트 (Node.js + Playwright + Chromium, python-docx·LibreOffice)
 ```
 
 | 파일 | 역할 |
@@ -76,3 +90,6 @@ bash tests/run-all.sh     # 자동 테스트 (Node.js + Playwright + Chromium, �
 | `src/docx-import.js`, `src/docx-export.js`, `src/model.js` | .docx 읽기/쓰기 |
 | `src/doc-import.js` | .doc (Word 97-2003 이진 형식) 읽기 |
 | `src/rtf-import.js`, `src/html-io.js` | .rtf 읽기, HTML 정리·붙여넣기, HTML 기반 .doc 저장 |
+| `installer/launcher.c` | `Geulbang.exe`: Edge/Chrome 앱 창으로 실행, '연결 프로그램'으로 받은 문서 경로 전달 |
+| `installer/geulbang.nsi` | NSIS 설치/제거 스크립트 |
+| `assets/` | 아이콘 (`installer/make_icon.py`로 생성) |

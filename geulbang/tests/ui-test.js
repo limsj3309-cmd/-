@@ -10,7 +10,7 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const url = 'file://' + path.resolve(__dirname, '../LiteWord.html');
+  const url = 'file://' + path.resolve(__dirname, '../geulbang.html');
   await page.goto(url);
   const k = page.keyboard;
   const html = () => page.evaluate(() => App.editor.innerHTML);
@@ -93,7 +93,7 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   assert(d.suggestedFilename() === '테스트 문서.docx', 'download name ' + d.suggestedFilename());
   assert(fs.statSync(target).size > 1000, 'downloaded docx has content');
   const title = await page.evaluate(() => document.title);
-  assert(title === '테스트 문서.docx - LiteWord', 'title updated and not dirty (' + title + ')');
+  assert(title === '테스트 문서.docx - 현서의 글방', 'title updated and not dirty (' + title + ')');
 
   // 6) 임시 저장 복구
   await page.evaluate(() => { App.editor.innerHTML = '<div>복구할 내용\t탭  두칸</div>'; markDirty(); saveDraft(); });

@@ -7,7 +7,7 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../geulbang.html'));
   await page.locator('#editor').click();
   const k = page.keyboard;
   await k.type('가나다 ABC');

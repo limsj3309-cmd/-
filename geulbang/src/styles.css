@@ -9,6 +9,7 @@
   --accent-soft: #dbe6fd;
   --hover: #eceff4;
   --danger: #c4314b;
+  --brand: #c4502a;
   --shadow: 0 1px 3px rgba(0, 0, 0, .12), 0 4px 14px rgba(0, 0, 0, .06);
   --ui-font: "맑은 고딕", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
   color-scheme: light;
@@ -16,12 +17,12 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #1d2026; --chrome: #262a31; --chrome-2: #2d323a; --border: #3a404a; --text: #e6e8eb; --muted: #9aa3ae;
-    --accent: #6c9cff; --accent-soft: #2c3b5c; --hover: #343a44; --danger: #ff6b81; color-scheme: dark;
+    --accent: #6c9cff; --accent-soft: #2c3b5c; --hover: #343a44; --danger: #ff6b81; --brand: #f08a62; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #1d2026; --chrome: #262a31; --chrome-2: #2d323a; --border: #3a404a; --text: #e6e8eb; --muted: #9aa3ae;
-  --accent: #6c9cff; --accent-soft: #2c3b5c; --hover: #343a44; --danger: #ff6b81; color-scheme: dark;
+  --accent: #6c9cff; --accent-soft: #2c3b5c; --hover: #343a44; --danger: #ff6b81; --brand: #f08a62; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -32,7 +33,7 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 
 /* 상단 파일 줄 */
 .titlebar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--chrome-2); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.brand { font-weight: 700; color: var(--accent); margin-right: 8px; letter-spacing: .2px; display: flex; align-items: center; gap: 6px; }
+.brand { font-weight: 700; color: var(--brand); margin-right: 8px; letter-spacing: .2px; display: flex; align-items: center; gap: 6px; }
 .docname { margin-left: auto; color: var(--muted); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .docname b { color: var(--text); font-weight: 600; }
 .dirty::after { content: " ●"; color: var(--danger); }

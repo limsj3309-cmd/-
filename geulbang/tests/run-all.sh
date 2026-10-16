@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LiteWord 자동 테스트 (headless Chromium + Playwright 필요, 샘플 변환에는 python-docx·LibreOffice 필요)
+# 현서의 글방 자동 테스트 (headless Chromium + Playwright 필요, 샘플 변환에는 python-docx·LibreOffice 필요)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 build.py
@@ -13,6 +13,7 @@ node tests/edit-test.js "$OUT/edit"
 python3 tests/inspect_docx.py "$OUT/edit/edited.docx"
 node tests/file-test.js "$OUT/files" "$OUT/edit/edited.doc"
 python3 tests/make_samples.py "$OUT/samples"
+node tests/launch-test.js "$OUT/samples/sample.docx"
 for f in sample.docx sample.doc sample.rtf; do
   node tests/roundtrip.js "$OUT/samples/$f" "$OUT/samples/rt-$f.docx" docx
   echo "== $f -> docx"

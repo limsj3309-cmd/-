@@ -8,7 +8,7 @@ const fs = require('fs');
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../geulbang.html'));
   const out = await page.evaluate(async ([b64, name, fmt]) => {
     await FileOps.load(new File([base64ToBytes(b64)], name), null);
     const blob = await buildBlob(fmt);

@@ -5,7 +5,7 @@ const fs = require('fs');
   const out = process.argv[2];
   const sample = process.argv[3];
   const browser = await chromium.launch();
-  const url = 'file://' + path.resolve(__dirname, '../LiteWord.html');
+  const url = 'file://' + path.resolve(__dirname, '../geulbang.html');
   const load = async (page) => page.evaluate(async ([b64, name]) => { await FileOps.load(new File([base64ToBytes(b64)], name), null); }, [fs.readFileSync(sample).toString('base64'), 'sample.docx']);
   // 1) 색상 팝업
   let page = await browser.newPage({ viewport: { width: 1280, height: 800 } });

@@ -375,12 +375,12 @@ function setFile(handle, name, fmt, overwrite) {
 function updateTitle() {
   $('docTitle').textContent = App.fileName;
   $('docName').classList.toggle('dirty', App.dirty);
-  document.title = (App.dirty ? '● ' : '') + App.fileName + ' - LiteWord';
+  document.title = (App.dirty ? '● ' : '') + App.fileName + ' - 현서의 글방';
   $('stSaved').textContent = App.dirty ? '저장 안 됨' : App.fileHandle || App.fileFormat ? '저장됨' : '';
 }
 
 // ---------- 자동 임시 저장(복구용) ----------
-const DRAFT_KEY = 'liteword.draft';
+const DRAFT_KEY = 'geulbang.draft';
 let draftTimer = null;
 function scheduleAutosave() {
   clearTimeout(draftTimer);
@@ -423,7 +423,7 @@ function setZoom(z) {
   App.zoom = Math.max(0.5, Math.min(2, Math.round(z * 10) / 10));
   $('page').style.setProperty('--zoom', App.zoom);
   $('zoomVal').textContent = Math.round(App.zoom * 100) + '%';
-  try { localStorage.setItem('liteword.zoom', App.zoom); } catch (e) { /* 무시 */ }
+  try { localStorage.setItem('geulbang.zoom', App.zoom); } catch (e) { /* 무시 */ }
 }
 
 // ---------- 찾기/바꾸기 ----------
@@ -562,6 +562,45 @@ const Find = (() => {
   };
 })();
 
+// ---------- 실행기(Geulbang.exe)로 넘겨받은 문서 열기 ----------
+// 탐색기의 '연결 프로그램'으로 열면 실행기가 주소 끝에 #open=<문서 경로>를 붙여 줍니다.
+function pathToFileUrl(p) {
+  const parts = p.replace(/\\/g, '/').split('/');
+  if (p.startsWith('\\\\') || p.startsWith('//')) {
+    return 'file://' + parts.slice(2).map((s, i) => (i === 0 ? s : encodeURIComponent(s))).join('/');
+  }
+  if (p.startsWith('/')) return 'file://' + parts.map(encodeURIComponent).join('/');
+  return 'file:///' + parts.map((s, i) => (i === 0 && /^[a-zA-Z]:$/.test(s) ? s : encodeURIComponent(s))).join('/');
+}
+
+function readLocalFile(url) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('GET', url);
+    x.responseType = 'arraybuffer';
+    x.onload = () => (x.status === 0 || x.status === 200) && x.response ? resolve(new Uint8Array(x.response)) : reject(new Error('읽기 실패'));
+    x.onerror = () => reject(new Error('읽기 실패'));
+    try { x.send(); } catch (e) { reject(e); }
+  });
+}
+
+async function openFromLaunch(path) {
+  const name = path.split(/[\\/]/).pop() || '문서';
+  try {
+    const bytes = await readLocalFile(pathToFileUrl(path));
+    await FileOps.load(new File([bytes], name), null);
+  } catch (e) {
+    Dialog.alert('파일을 열지 못했습니다', `'${name}'을(를) 바로 열 수 없습니다. [열기] 단추로 파일을 선택해 주세요.`);
+  }
+}
+
+function launchRequest() {
+  const m = /^#open=(.+)$/.exec(location.hash);
+  if (!m) return null;
+  history.replaceState(null, '', location.pathname + location.search);
+  try { return decodeURIComponent(m[1]); } catch (e) { return null; }
+}
+
 // ---------- 초기화 ----------
 function init() {
   // 제목 스타일 CSS (docx 저장값과 동일)
@@ -632,7 +671,7 @@ function init() {
   $('zoomIn').addEventListener('click', () => setZoom(App.zoom + 0.1));
   $('zoomOut').addEventListener('click', () => setZoom(App.zoom - 0.1));
   let z = 1;
-  try { z = parseFloat(localStorage.getItem('liteword.zoom')) || 1; } catch (e) { /* 무시 */ }
+  try { z = parseFloat(localStorage.getItem('geulbang.zoom')) || 1; } catch (e) { /* 무시 */ }
   setZoom(z);
 
   document.addEventListener('selectionchange', () => {
@@ -693,7 +732,9 @@ function init() {
 
   createEditor();
   setFile(null, '제목 없음', null, false);
-  const draft = loadDraft();
+  const launchPath = launchRequest();
+  const draft = launchPath ? null : loadDraft();
+  if (launchPath) openFromLaunch(launchPath);
   if (draft) {
     const when = new Date(draft.t).toLocaleString('ko-KR');
     Dialog.choice('문서 복구', `저장하지 않고 닫힌 문서가 있습니다 (${draft.name}, ${when}). 복구할까요?`, [

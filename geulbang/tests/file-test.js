@@ -1,4 +1,4 @@
-// 사용법: node file-test.js <작업 폴더> <LiteWord가 저장한 .doc>
+// 사용법: node file-test.js <작업 폴더> <현서의 글방이 저장한 .doc>
 // 텍스트·HTML .doc 열기, 파일 시스템 API(가짜)로 저장/덮어쓰기 흐름 테스트
 const { chromium } = require('playwright');
 const path = require('path');
@@ -14,7 +14,7 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../geulbang.html'));
   const load = (file) => page.evaluate(async ([b64, name]) => { await FileOps.load(new File([base64ToBytes(b64)], name), null); return App.editor.innerText; },
     [fs.readFileSync(file).toString('base64'), path.basename(file)]);
   let t = await load(path.join(dir, 'euckr.txt'));
@@ -25,7 +25,7 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   // 우리가 만든 .doc(HTML) 다시 열기
   t = await load(docPath);
   const h = await page.evaluate(() => App.editor.innerHTML);
-  assert(t.includes('LiteWord 테스트 문서') && /<h1/.test(h) && /<ul/.test(h) && /<table/.test(h) && /page-break/.test(h) && /<img/.test(h),
+  assert(t.includes('글방 테스트 문서') && /<h1/.test(h) && /<ul/.test(h) && /<table/.test(h) && /page-break/.test(h) && /<img/.test(h),
     'reopen own .doc keeps heading/list/table/page break/image');
   assert(/탭 뒤 {2}두 칸 공백/.test(t) && /\t/.test(t), 'reopen own .doc keeps tab and double spaces');
 

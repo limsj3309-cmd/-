@@ -255,7 +255,7 @@ const DocxExport = (() => {
   function appXml() {
     return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
       '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" ' +
-      'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>LiteWord</Application></Properties>';
+      'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>현서의 글방</Application></Properties>';
   }
 
   function settingsXml() {

@@ -242,7 +242,7 @@ const HtmlIO = (() => {
     }
     const h = LW.HEADINGS.map((x, i) => `h${i + 1}{font-size:${x.sizePt}pt;margin:${x.beforePt}pt 0 ${x.afterPt}pt}`).join('\n');
     const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="Generator" content="LiteWord">' +
+      '<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="Generator" content="현서의 글방">' +
       `<title>${escapeHtml(title || '')}</title>` +
       '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->' +
       '<style>@page WordSection1{size:595.3pt 841.9pt;margin:72pt 72pt 72pt 72pt;mso-header-margin:42.55pt;mso-footer-margin:49.6pt}' +

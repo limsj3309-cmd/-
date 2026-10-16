@@ -8,7 +8,7 @@ const fs = require('fs');
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  await page.goto('file://' + path.resolve(__dirname, '../geulbang.html'));
   const file = process.argv[2];
   const b64 = fs.readFileSync(file).toString('base64');
   const res = await page.evaluate(async ([b64, name]) => {
