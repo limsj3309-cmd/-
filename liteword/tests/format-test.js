@@ -1,0 +1,44 @@
+// 글자 크기/색/서식 지우기와 실행 취소
+const { chromium } = require('playwright');
+const path = require('path');
+const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode = 1; } else console.log('ok  :', m); };
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  await page.locator('#editor').click();
+  const k = page.keyboard;
+  await k.type('가나다 ABC');
+  await k.press('Shift+Home');
+  await page.selectOption('#selSize', '20');
+  let h = await page.evaluate(() => App.editor.innerHTML);
+  assert(/font-size: 20pt/.test(h) && !/xxx-large|size="7"/.test(h), 'size applied as pt: ' + h);
+  const sel = await page.inputValue('#selSize');
+  assert(sel === '20', 'size select reflects 20 (' + sel + ')');
+  await page.selectOption('#selSize', '9');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(/font-size: 9pt/.test(h) && !/20pt/.test(h), 'resize replaces previous size: ' + h);
+  await page.click('[data-cmd="undo"]');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(/font-size: 20pt/.test(h), 'undo restores 20pt: ' + h);
+  await page.click('[data-cmd="undo"]');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(!/font-size/.test(h) && /가나다 ABC/.test(h), 'undo removes size: ' + h);
+  await page.click('[data-cmd="redo"]');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(/font-size: 20pt/.test(h), 'redo re-applies 20pt: ' + h);
+  // 커서만 있을 때 크기 바꾸고 입력
+  await k.press('End');
+  await page.selectOption('#selSize', '28');
+  await k.type('큰글');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(/font-size: 28pt;?">큰글/.test(h) || /28pt[^>]*>[^<]*큰글/.test(h), 'typing after collapsed size change: ' + h);
+  await k.press('Control+a');
+  await page.click('[data-cmd="removeFormat"]');
+  h = await page.evaluate(() => App.editor.innerHTML);
+  assert(!/font-size/.test(h), 'remove format clears sizes: ' + h);
+  console.log('errors:', JSON.stringify(errors));
+  await browser.close();
+})();

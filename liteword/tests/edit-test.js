@@ -1,0 +1,72 @@
+// 편집 → docx/doc/txt 내보내기 테스트. 사용법: node edit-test.js <출력 폴더>
+const { chromium } = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const out = process.argv[2];
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto('file://' + path.resolve(__dirname, '../LiteWord.html'));
+  const ed = page.locator('#editor');
+  await ed.click();
+  const k = page.keyboard;
+  await k.type('LiteWord 테스트 문서');
+  await page.selectOption('#selStyle', 'h1');
+  await k.press('End');
+  await k.press('Enter');
+  await k.type('일반 문단입니다. Normal paragraph with ');
+  await k.press('Control+b'); await k.type('굵은 글씨'); await k.press('Control+b');
+  await k.type(' and ');
+  await k.press('Control+i'); await k.type('italic'); await k.press('Control+i');
+  await k.type('.\t탭 뒤  두 칸 공백');
+  await k.press('Enter');
+  await page.click('[data-cmd="insertUnorderedList"]');
+  await k.type('첫째 항목'); await k.press('Enter');
+  await k.type('둘째 항목'); await k.press('Enter');
+  await k.press('Tab'); await k.type('중첩 항목'); await k.press('Enter');
+  await k.press('Shift+Tab'); await k.type('셋째'); await k.press('Enter'); await k.press('Enter');
+  await page.click('[data-cmd="insertOrderedList"]');
+  await k.type('하나'); await k.press('Enter'); await k.type('둘'); await k.press('Enter'); await k.press('Enter');
+  await k.type('색과 크기 ');
+  await k.down('Shift'); for (let i = 0; i < 5; i++) await k.press('ArrowLeft'); await k.up('Shift');
+  await page.selectOption('#selSize', '16');
+  await page.evaluate(() => applyColor('fore', 'FF0000'));
+  await page.selectOption('#selFont', 'Times New Roman');
+  await k.press('End');
+  await k.press('Enter');
+  await k.type('가운데 정렬 문단');
+  await page.click('[data-cmd="justifyCenter"]');
+  await page.selectOption('#selLine', '2.0');
+  await k.press('Enter');
+  await page.click('[data-cmd="justifyLeft"]');
+  await page.evaluate(() => insertTable(2, 3));
+  await k.type('A1'); await k.press('Tab'); await k.type('B1'); await k.press('Tab'); await k.type('C1'); await k.press('Tab');
+  await k.type('A2 한글'); await k.press('Tab'); await k.type('B2');
+  await page.evaluate(() => { const t = document.querySelector('#editor table'); placeCaret(t.nextElementSibling); });
+  await k.type('표 다음 문단');
+  await page.click('[data-cmd="pageBreak"]');
+  await k.type('다음 쪽 내용 H');
+  await page.click('[data-cmd="superscript"]'); await k.type('2'); await page.click('[data-cmd="superscript"]');
+  await k.type('O');
+  await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 120; c.height = 60;
+    const g = c.getContext('2d'); g.fillStyle = '#3a7'; g.fillRect(0, 0, 120, 60); g.fillStyle = '#fff'; g.fillText('IMG', 40, 35);
+    focusEditor(); exec('insertHTML', `<img src="${c.toDataURL('image/png')}" width="120">`);
+  });
+  await page.waitForTimeout(300);
+  const html = await page.evaluate(() => App.editor.innerHTML);
+  fs.writeFileSync(path.join(out, 'editor.html'), html);
+  for (const fmt of ['docx', 'doc', 'txt']) {
+    const b64 = await page.evaluate(async (f) => {
+      const blob = await buildBlob(f);
+      return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+    }, fmt);
+    fs.writeFileSync(path.join(out, 'edited.' + fmt), Buffer.from(b64, 'base64'));
+  }
+  await page.screenshot({ path: path.join(out, 'edited.png') });
+  console.log('errors:', JSON.stringify(errors));
+  await browser.close();
+})();

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiteWord</title>
+<style>
+/*INLINE_CSS*/
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-new" viewBox="0 0 20 20"><path d="M5 2.5h6.5L15 6v11.5H5z"/><path d="M11.5 2.5V6H15"/><path d="M10 9v5M7.5 11.5h5"/></symbol>
+  <symbol id="i-open" viewBox="0 0 20 20"><path d="M2.5 5.5v10h13l2-7H5.2l-2.7 7"/><path d="M2.5 5.5V4h5l1.5 1.5h6v3"/></symbol>
+  <symbol id="i-save" viewBox="0 0 20 20"><path d="M3.5 3.5h10l3 3v10h-13z"/><path d="M6.5 3.5v4h6v-4"/><rect x="6" y="11" width="8" height="5.5"/></symbol>
+  <symbol id="i-saveas" viewBox="0 0 20 20"><path d="M3.5 3.5h10l3 3v4"/><path d="M3.5 3.5v13h6"/><path d="M6.5 3.5v4h6v-4"/><path d="M12 17l.5-2.5 4-4 2 2-4 4z"/></symbol>
+  <symbol id="i-print" viewBox="0 0 20 20"><path d="M5.5 7.5v-5h9v5"/><rect x="2.5" y="7.5" width="15" height="7" rx="1.5"/><path d="M5.5 12.5h9v5h-9z"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 20 20"><path d="M7 4.5 3.5 8 7 11.5"/><path d="M3.5 8H12a4.5 4.5 0 0 1 0 9H8"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 20 20"><path d="M13 4.5 16.5 8 13 11.5"/><path d="M16.5 8H8a4.5 4.5 0 0 0 0 9h4"/></symbol>
+  <symbol id="i-al" viewBox="0 0 20 20"><path d="M3 4.5h14M3 8.5h9M3 12.5h14M3 16.5h9"/></symbol>
+  <symbol id="i-ac" viewBox="0 0 20 20"><path d="M3 4.5h14M5.5 8.5h9M3 12.5h14M5.5 16.5h9"/></symbol>
+  <symbol id="i-ar" viewBox="0 0 20 20"><path d="M3 4.5h14M8 8.5h9M3 12.5h14M8 16.5h9"/></symbol>
+  <symbol id="i-aj" viewBox="0 0 20 20"><path d="M3 4.5h14M3 8.5h14M3 12.5h14M3 16.5h14"/></symbol>
+  <symbol id="i-ul" viewBox="0 0 20 20"><circle cx="4" cy="5" r=".9" fill="currentColor"/><circle cx="4" cy="10" r=".9" fill="currentColor"/><circle cx="4" cy="15" r=".9" fill="currentColor"/><path d="M8 5h9M8 10h9M8 15h9"/></symbol>
+  <symbol id="i-ol" viewBox="0 0 20 20"><path d="M3 3.5h1.3v4M3 7.5h2.5M2.8 12.2c.3-.8 2.4-.9 2.4.4 0 1-2.4 1.6-2.4 3.1h2.6"/><path d="M8 5h9M8 10h9M8 15h9"/></symbol>
+  <symbol id="i-indent" viewBox="0 0 20 20"><path d="M3 4h14M9 8h8M9 12h8M3 16h14"/><path d="M3 7.5 5.8 10 3 12.5"/></symbol>
+  <symbol id="i-outdent" viewBox="0 0 20 20"><path d="M3 4h14M9 8h8M9 12h8M3 16h14"/><path d="M5.8 7.5 3 10l2.8 2.5"/></symbol>
+  <symbol id="i-table" viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="1"/><path d="M2.5 8h15M2.5 12.3h15M7.5 3.5v13M12.5 3.5v13"/></symbol>
+  <symbol id="i-image" viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/><circle cx="7" cy="8" r="1.5"/><path d="m3 15 4.5-4.5 3 3 2.5-2.5 4.5 4.5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 20 20"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5l-1 1"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></symbol>
+  <symbol id="i-pb" viewBox="0 0 20 20"><path d="M5 2.5v4h10v-4M5 17.5v-4h10v4"/><path d="M2 10h2.5M7 10h2.5M11.5 10H14M16.5 10H18"/></symbol>
+  <symbol id="i-find" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.3 12.3 4.7 4.7"/></symbol>
+  <symbol id="i-clear" viewBox="0 0 20 20"><path d="M4 4.5h10M9 4.5 6.5 16"/><path d="m12 12 5 5M17 12l-5 5"/></symbol>
+  <symbol id="i-marker" viewBox="0 0 20 20"><path d="m6 13 7.5-9.5 3 2.5L9 15.5z"/><path d="M6 13 4 16.5h3.5L9 15.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 20 20"><path d="m5 8 5 5 5-5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 20 20"><path d="M4.5 2.5h7l4 4v11h-11z"/><path d="M7 9.5l1.2 5 1.8-4 1.8 4 1.2-5"/></symbol>
+</svg>
+
+<div id="app">
+  <header class="titlebar">
+    <div class="brand"><svg class="i"><use href="#i-logo"/></svg>LiteWord</div>
+    <button class="btn" data-cmd="new" title="새 문서 (Ctrl+N)"><svg class="i"><use href="#i-new"/></svg><span class="lbl">새 문서</span></button>
+    <button class="btn" data-cmd="open" title="열기 (Ctrl+O) — docx, doc, rtf, txt, html"><svg class="i"><use href="#i-open"/></svg><span class="lbl">열기</span></button>
+    <button class="btn" data-cmd="save" title="저장 (Ctrl+S)"><svg class="i"><use href="#i-save"/></svg><span class="lbl">저장</span></button>
+    <button class="btn" data-cmd="saveAs" title="다른 이름으로 저장 (Ctrl+Shift+S)"><svg class="i"><use href="#i-saveas"/></svg><span class="lbl">다른 이름으로 저장</span></button>
+    <button class="btn" data-cmd="print" title="인쇄 / PDF로 저장 (Ctrl+P)"><svg class="i"><use href="#i-print"/></svg><span class="lbl">인쇄</span></button>
+    <div class="docname" id="docName"><b id="docTitle">제목 없음</b></div>
+  </header>
+
+  <div class="toolbar" role="toolbar" aria-label="서식">
+    <button class="btn icon" data-cmd="undo" title="실행 취소 (Ctrl+Z)"><svg class="i"><use href="#i-undo"/></svg></button>
+    <button class="btn icon" data-cmd="redo" title="다시 실행 (Ctrl+Y)"><svg class="i"><use href="#i-redo"/></svg></button>
+    <span class="sep"></span>
+    <select id="selStyle" title="문단 스타일">
+      <option value="p">본문</option>
+      <option value="h1">제목 1</option>
+      <option value="h2">제목 2</option>
+      <option value="h3">제목 3</option>
+      <option value="h4">제목 4</option>
+    </select>
+    <select id="selFont" title="글꼴"></select>
+    <select id="selSize" title="글자 크기(pt)"></select>
+    <span class="sep"></span>
+    <button class="btn icon" data-cmd="bold" title="굵게 (Ctrl+B)"><span class="txt-ico">B</span></button>
+    <button class="btn icon" data-cmd="italic" title="기울임꼴 (Ctrl+I)"><span class="txt-ico" style="font-style:italic;font-weight:400">I</span></button>
+    <button class="btn icon" data-cmd="underline" title="밑줄 (Ctrl+U)"><span class="txt-ico" style="text-decoration:underline;font-weight:400">U</span></button>
+    <button class="btn icon" data-cmd="strikeThrough" title="취소선"><span class="txt-ico" style="text-decoration:line-through;font-weight:400">S</span></button>
+    <button class="btn icon" data-cmd="superscript" title="위 첨자"><span class="txt-ico" style="font-weight:400;font-size:13px">x²</span></button>
+    <button class="btn icon" data-cmd="subscript" title="아래 첨자"><span class="txt-ico" style="font-weight:400;font-size:13px">x₂</span></button>
+    <span class="drop">
+      <button class="btn icon color-btn" data-cmd="foreColorApply" title="글자 색"><span class="txt-ico" style="font-family:var(--ui-font);font-size:14px;margin-top:-4px">가</span><span class="bar" id="foreBar" style="background:#c00000"></span></button>
+      <button class="btn caret" data-pop="popFore" title="글자 색 고르기"><svg class="i"><use href="#i-down"/></svg></button>
+    </span>
+    <span class="drop">
+      <button class="btn icon color-btn" data-cmd="hiliteApply" title="형광펜"><svg class="i" style="margin-top:-4px"><use href="#i-marker"/></svg><span class="bar" id="hiliteBar" style="background:#ffff00"></span></button>
+      <button class="btn caret" data-pop="popHilite" title="형광펜 색 고르기"><svg class="i"><use href="#i-down"/></svg></button>
+    </span>
+    <button class="btn icon" data-cmd="removeFormat" title="서식 지우기"><svg class="i"><use href="#i-clear"/></svg></button>
+    <span class="sep"></span>
+    <button class="btn icon" data-cmd="justifyLeft" title="왼쪽 맞춤 (Ctrl+L)"><svg class="i"><use href="#i-al"/></svg></button>
+    <button class="btn icon" data-cmd="justifyCenter" title="가운데 맞춤 (Ctrl+E)"><svg class="i"><use href="#i-ac"/></svg></button>
+    <button class="btn icon" data-cmd="justifyRight" title="오른쪽 맞춤 (Ctrl+R)"><svg class="i"><use href="#i-ar"/></svg></button>
+    <button class="btn icon" data-cmd="justifyFull" title="양쪽 맞춤 (Ctrl+J)"><svg class="i"><use href="#i-aj"/></svg></button>
+    <span class="sep"></span>
+    <button class="btn icon" data-cmd="insertUnorderedList" title="글머리 기호"><svg class="i"><use href="#i-ul"/></svg></button>
+    <button class="btn icon" data-cmd="insertOrderedList" title="번호 매기기"><svg class="i"><use href="#i-ol"/></svg></button>
+    <button class="btn icon" data-cmd="outdent" title="내어쓰기 (Shift+Tab)"><svg class="i"><use href="#i-outdent"/></svg></button>
+    <button class="btn icon" data-cmd="indent" title="들여쓰기 (Tab)"><svg class="i"><use href="#i-indent"/></svg></button>
+    <select id="selLine" title="줄 간격">
+      <option value="1.0">1.0</option>
+      <option value="1.15">1.15</option>
+      <option value="1.5">1.5</option>
+      <option value="2.0">2.0</option>
+      <option value="2.5">2.5</option>
+      <option value="3.0">3.0</option>
+    </select>
+    <span class="sep"></span>
+    <button class="btn icon" data-pop="popTable" title="표 삽입 / 표 편집"><svg class="i"><use href="#i-table"/></svg></button>
+    <button class="btn icon" data-cmd="insertImage" title="그림 삽입"><svg class="i"><use href="#i-image"/></svg></button>
+    <button class="btn icon" data-cmd="link" title="링크 (Ctrl+K)"><svg class="i"><use href="#i-link"/></svg></button>
+    <button class="btn icon" data-cmd="pageBreak" title="쪽 나누기 (Ctrl+Enter)"><svg class="i"><use href="#i-pb"/></svg></button>
+    <span class="sep"></span>
+    <button class="btn icon" data-cmd="find" title="찾기 / 바꾸기 (Ctrl+F, Ctrl+H)"><svg class="i"><use href="#i-find"/></svg></button>
+  </div>
+
+  <div class="findbar" id="findBar" hidden>
+    <input type="text" id="findText" placeholder="찾을 내용" aria-label="찾을 내용">
+    <button class="btn outline" id="findPrev" title="이전 (Shift+Enter)">이전</button>
+    <button class="btn outline" id="findNext" title="다음 (Enter)">다음</button>
+    <span id="findInfo"></span>
+    <input type="text" id="replaceText" placeholder="바꿀 내용" aria-label="바꿀 내용">
+    <button class="btn outline" id="replaceOne">바꾸기</button>
+    <button class="btn outline" id="replaceAll">모두 바꾸기</button>
+    <label><input type="checkbox" id="findCase"> 대/소문자 구분</label>
+    <button class="btn icon" id="findClose" title="닫기 (Esc)"><svg class="i"><use href="#i-close"/></svg></button>
+  </div>
+
+  <main class="workspace" id="workspace">
+    <div class="page" id="page"></div>
+  </main>
+
+  <footer class="statusbar">
+    <span id="stChars">글자 0</span>
+    <span id="stCharsNoSp">공백 제외 0</span>
+    <span id="stWords">단어 0</span>
+    <span id="stPages"></span>
+    <span class="grow"></span>
+    <span id="stSaved"></span>
+    <span class="zoom">
+      <button class="btn icon" id="zoomOut" title="축소">−</button>
+      <span id="zoomVal">100%</span>
+      <button class="btn icon" id="zoomIn" title="확대">+</button>
+    </span>
+  </footer>
+</div>
+
+<!-- 팝업 -->
+<div class="popup" id="popFore" hidden><div class="swatches" data-kind="fore"></div><button class="btn outline wide" data-color="auto" data-kind="fore">자동(검정)</button></div>
+<div class="popup" id="popHilite" hidden><div class="swatches" data-kind="hilite"></div><button class="btn outline wide" data-color="none" data-kind="hilite">형광펜 없음</button></div>
+<div class="popup" id="popTable" hidden>
+  <div id="tableInsert"><div class="tgrid" id="tgrid"></div><div class="tlabel" id="tlabel">표 삽입</div></div>
+  <div class="menu" id="tableMenu" hidden>
+    <button class="btn" data-tcmd="rowAbove">위에 행 삽입</button>
+    <button class="btn" data-tcmd="rowBelow">아래에 행 삽입</button>
+    <button class="btn" data-tcmd="colLeft">왼쪽에 열 삽입</button>
+    <button class="btn" data-tcmd="colRight">오른쪽에 열 삽입</button>
+    <hr>
+    <button class="btn" data-tcmd="delRow">행 삭제</button>
+    <button class="btn" data-tcmd="delCol">열 삭제</button>
+    <button class="btn" data-tcmd="delTable">표 삭제</button>
+  </div>
+</div>
+<div class="popup" id="popImg" hidden>
+  <div id="imgTools">
+    <button class="btn outline" data-imgw="25">25%</button>
+    <button class="btn outline" data-imgw="50">50%</button>
+    <button class="btn outline" data-imgw="75">75%</button>
+    <button class="btn outline" data-imgw="100">100%</button>
+    <button class="btn outline" data-imgw="0">원래 크기</button>
+  </div>
+</div>
+
+<!-- 대화 상자 -->
+<div class="overlay" id="overlay" hidden><div class="dialog" role="dialog" aria-modal="true" id="dialog"></div></div>
+<div id="toast" hidden></div>
+<input type="file" id="fileInput" hidden accept=".docx,.doc,.rtf,.txt,.htm,.html,.mht,.mhtml,.docm,.dot,.dotx">
+<input type="file" id="imageInput" hidden accept="image/png,image/jpeg,image/gif,image/bmp,image/webp">
+
+<script>
+/*INLINE_JS*/
+</script>
+</body>
+</html>
