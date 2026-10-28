@@ -76,11 +76,27 @@ public final class HwpxConverter {
         if (header == null) header = "Contents/header.xml";
         loadHeader(header);
 
-        sb.append("<div class=\"page\">");
+        int pwMark = sb.length();
+        sb.append("<div class=\"page\" data-pw=\"605\">");
+        boolean pwSet = false;
         for (int i = 0; i < sections.size(); i++) {
             if (i > 0) sb.append("<hr class=\"pb\">");
             XNode sec = zip.xml(sections.get(i));
             if (sec == null) continue;
+            if (!pwSet) {
+                XNode pp = sec.find("pagePr");
+                if (pp != null) {
+                    long w = "NARROWLY".equals(pp.attr("landscape")) ? pp.longAttr("height", 0) : pp.longAttr("width", 0);
+                    XNode mg = pp.child("margin");
+                    if (mg != null) w -= mg.longAttr("left", 0) + mg.longAttr("right", 0);
+                    long px = w / 75;
+                    if (px > 100 && px < 4000) {
+                        String tag = "<div class=\"page\" data-pw=\"605\">";
+                        sb.replace(pwMark, pwMark + tag.length(), "<div class=\"page\" data-pw=\"" + px + "\">");
+                    }
+                }
+                pwSet = true;
+            }
             XNode root = sec.child("sec");
             blocks(root != null ? root : sec);
         }

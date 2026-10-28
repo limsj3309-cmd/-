@@ -262,7 +262,7 @@ public final class PptxConverter {
         }
         int n = slides.size();
         for (int i = 0; i < n; i++) {
-            sb.append("<div class=\"sw\" data-w=\"").append(w).append("\" data-h=\"").append(h).append("\">");
+            sb.append("<div class=\"sw\" style=\"width:").append(w).append("px;height:").append(h).append("px\">");
             int mark = sb.length();
             try {
                 slide(slides.get(i), w, h);
@@ -275,20 +275,25 @@ public final class PptxConverter {
         }
         if (n == 0) return new Doc(Html.message("빈 프레젠테이션", "표시할 슬라이드가 없습니다."), zip, zip);
         String css = "body{background:#3a3b3f}"
-                + ".sw{margin:10px auto 0;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}"
+                + ".sw{margin:8px auto 0;overflow:hidden;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5)}"
                 + ".sl{position:relative;overflow:hidden;transform-origin:0 0;background:#fff;color:#000;font-family:sans-serif;line-height:1.2;word-wrap:break-word;overflow-wrap:break-word}"
                 + ".sp{position:absolute;display:flex;flex-direction:column}"
                 + ".sp>.tx{overflow:visible}"
-                + ".sp p{margin:0}"
+                + ".sl p{margin:0}"
                 + ".sn{text-align:center;color:#bbb;font-size:12px;margin:4px 0 6px;font-family:sans-serif}"
                 + ".sl table{position:absolute;border-collapse:collapse;table-layout:fixed}"
-                + ".sl td{vertical-align:top;padding:4px 7px;overflow:hidden}"
+                + ".sl td{vertical-align:top;padding:4.8px 9.6px;overflow:hidden}"
                 + ".sl svg{position:absolute;overflow:visible}";
-        String js = "function fit(){var W=document.documentElement.clientWidth;var a=document.querySelectorAll('.sw');"
-                + "for(var i=0;i<a.length;i++){var e=a[i],w=+e.getAttribute('data-w'),h=+e.getAttribute('data-h');"
-                + "var t=Math.min(W-12,1600),k=t/w;e.firstChild.style.transform='scale('+k+')';e.style.width=t+'px';e.style.height=Math.round(h*k)+'px';}}"
-                + "window.addEventListener('resize',fit);fit();";
-        return new Doc(Html.page("ppt", css, sb.toString(), js), zip, zip);
+        // Slides keep their real pixel size; the viewport is set to the slide width so the
+        // WebView opens fitted to the screen and pinch zoom re-renders text sharply.
+        // Android fonts can be wider than the originals; text that no longer fits its table or
+        // box is shrunk (down to 60%) so it doesn't spill over the next element.
+        String js = "function shrink(el,box,limit){var s=el.querySelectorAll('span'),b=[];for(var i=0;i<s.length;i++)b.push(parseFloat(s[i].style.fontSize)||0);"
+                + "for(var k=0.95;k>=0.6&&box.offsetHeight>limit+1;k-=0.05)for(var i=0;i<s.length;i++)if(b[i])s[i].style.fontSize=(b[i]*k)+'pt';}"
+                + "var t=document.querySelectorAll('.sl table[data-h]');for(var i=0;i<t.length;i++){var h=+t[i].getAttribute('data-h');if(h>0)shrink(t[i],t[i],h);}"
+                + "var x=document.querySelectorAll('.sp>.tx');for(var i=0;i<x.length;i++){var p=x[i].parentNode,cs=getComputedStyle(p),"
+                + "lim=p.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);if(lim>4)shrink(x[i],x[i],lim);}";
+        return new Doc(Html.page("ppt", css, sb.toString(), js, w + 16), zip, zip);
     }
 
     private void slide(String path, int w, int h) {
@@ -756,7 +761,9 @@ public final class PptxConverter {
         boolean styled = tp != null && tp.child("tableStyleId") != null;
         String accent = scheme(src, "accent1");
         if (accent == null) accent = "#4472C4";
-        sb.append("<table style=\"left:").append(Util.fmt(b.x)).append("px;top:").append(Util.fmt(b.y)).append("px;width:").append(Util.fmt(b.w)).append("px\"><colgroup>");
+        double tableH = 0;
+        for (XNode tr : tbl.children("tr")) tableH += tr.longAttr("h", 0) / EMU_PX;
+        sb.append("<table data-h=\"").append(Util.fmt(tableH)).append("\" style=\"left:").append(Util.fmt(b.x)).append("px;top:").append(Util.fmt(b.y)).append("px;width:").append(Util.fmt(b.w)).append("px\"><colgroup>");
         for (double c : cols) sb.append("<col style=\"width:").append(Util.fmt(c)).append("px\">");
         sb.append("</colgroup>");
         int r = 0;
@@ -781,6 +788,10 @@ public final class PptxConverter {
                 if (bg != null && !"transparent".equals(bg)) css.append("background:").append(bg).append(';');
                 css.append("border:1px solid ").append(styled ? "#FFFFFF" : "#888").append(';');
                 if (tcPr != null) {
+                    css.append("padding:").append(Util.fmt(tcPr.longAttr("marT", 45720) / EMU_PX)).append("px ")
+                            .append(Util.fmt(tcPr.longAttr("marR", 91440) / EMU_PX)).append("px ")
+                            .append(Util.fmt(tcPr.longAttr("marB", 45720) / EMU_PX)).append("px ")
+                            .append(Util.fmt(tcPr.longAttr("marL", 91440) / EMU_PX)).append("px;");
                     String an = tcPr.attr("anchor");
                     if ("ctr".equals(an)) css.append("vertical-align:middle;");
                     else if ("b".equals(an)) css.append("vertical-align:bottom;");

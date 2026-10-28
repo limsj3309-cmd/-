@@ -105,7 +105,7 @@ public final class HwpConverter {
         byte[] info = stream("DocInfo");
         if (info != null) docInfo(records(info));
 
-        sb.append("<div class=\"page\">");
+        sb.append("<div class=\"page\" data-pw=\"").append(PW_MARK).append("\">");
         int sections = 0;
         for (int i = 0; i < 1000; i++) {
             byte[] sec;
@@ -118,11 +118,15 @@ public final class HwpConverter {
                 if (sec == null) break;
             }
             if (i > 0) sb.append("<hr class=\"pb\">");
-            Rec root = tree(records(sec));
+            List<Rec> flat = records(sec);
+            if (pageWidth == 0) pageWidth = pageWidth(flat);
+            Rec root = tree(flat);
             paras(root.kids);
             sections++;
         }
         if (sections == 0) throw new Doc.UserError("한글 문서 본문을 찾을 수 없습니다.");
+        int mark = sb.indexOf(PW_MARK);
+        if (mark >= 0) sb.replace(mark, mark + PW_MARK.length(), Integer.toString(pageWidth > 0 ? pageWidth : 605));
         sb.append("</div>");
         Doc.Res res = path -> {
             if (!path.startsWith("bin/")) return null;
@@ -142,6 +146,23 @@ public final class HwpConverter {
             return raw;
         };
         return new Doc(Html.page("hwp", null, sb.toString(), null), res, cfb);
+    }
+
+    private static final String PW_MARK = "@@PW@@";
+    private static final int PAGE_DEF = TAG_BEGIN + 57;
+    private int pageWidth;
+
+    /** Text-area width in CSS px from the section's PAGE_DEF record, or 0. */
+    private static int pageWidth(List<Rec> recs) {
+        for (Rec r : recs) {
+            if (r.tag != PAGE_DEF || r.data.length < 40) continue;
+            long w = Util.u32(r.data, 0), h = Util.u32(r.data, 4);
+            long l = Util.u32(r.data, 8), rt = Util.u32(r.data, 12);
+            if ((Util.i32(r.data, 36) & 1) != 0) w = h; // landscape
+            long content = (w - l - rt) / 75;
+            return content > 100 && content < 4000 ? (int) content : 0;
+        }
+        return 0;
     }
 
     /** Distribution (배포용) documents: AES-128/ECB with a key hidden in the first record. */

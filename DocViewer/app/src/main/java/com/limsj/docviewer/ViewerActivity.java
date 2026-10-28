@@ -72,6 +72,7 @@ public class ViewerActivity extends Activity {
 
     private volatile Doc doc;
     private volatile String html;
+    private String rawHtml;
     private File temp;
     private Uri uri;
     private String name = "문서";
@@ -245,7 +246,8 @@ public class ViewerActivity extends Activity {
 
     private void show(Doc d) {
         doc = d;
-        html = d.html;
+        rawHtml = d.html;
+        html = layout(rawHtml);
         applyZoom();
         web.loadUrl(BASE + "index.html");
         setLoading(false, null);
@@ -253,6 +255,7 @@ public class ViewerActivity extends Activity {
     }
 
     private void showError(String title, String msg) {
+        rawHtml = null;
         html = Html.message(title, msg);
         doc = null;
         if (web != null) web.loadUrl(BASE + "index.html");
@@ -277,7 +280,7 @@ public class ViewerActivity extends Activity {
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
         s.setUseWideViewPort(true);
-        s.setLoadWithOverviewMode(false);
+        s.setLoadWithOverviewMode(true);
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setSaveFormData(false);
@@ -430,6 +433,7 @@ public class ViewerActivity extends Activity {
     public boolean onCreateOptionsMenu(Menu menu) {
         menu.add(0, 1, 0, "찾기").setIcon(android.R.drawable.ic_menu_search).setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
         menu.add(0, 2, 1, "글자 크기");
+        menu.add(0, 6, 2, "모바일 맞춤 보기").setCheckable(true);
         menu.add(0, 3, 2, "맨 위로");
         menu.add(0, 4, 3, "다른 앱으로 열기");
         menu.add(0, 5, 4, "공유");
@@ -440,6 +444,11 @@ public class ViewerActivity extends Activity {
     public boolean onPrepareOptionsMenu(Menu menu) {
         MenuItem z = menu.findItem(2);
         if (z != null) z.setVisible(kind != Converter.Kind.PDF);
+        MenuItem r = menu.findItem(6);
+        if (r != null) {
+            r.setVisible(isFlowing());
+            r.setChecked(prefs().getBoolean("reflow", false));
+        }
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -449,6 +458,16 @@ public class ViewerActivity extends Activity {
             case android.R.id.home: finish(); return true;
             case 1: if (findBar.getVisibility() == View.VISIBLE) closeFind(); else openFind(); return true;
             case 2: chooseZoom(); return true;
+            case 6: {
+                boolean reflow = !prefs().getBoolean("reflow", false);
+                prefs().edit().putBoolean("reflow", reflow).apply();
+                item.setChecked(reflow);
+                if (rawHtml != null && web != null) {
+                    html = layout(rawHtml);
+                    web.loadUrl(BASE + "index.html");
+                }
+                return true;
+            }
             case 3: if (web != null) { web.pageUp(true); web.scrollTo(0, 0); } return true;
             case 4: external(Intent.ACTION_VIEW); return true;
             case 5: external(Intent.ACTION_SEND); return true;
@@ -471,6 +490,16 @@ public class ViewerActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "열 수 있는 앱이 없습니다.", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Word/HWP documents: shown at their real page width unless the user picked the mobile reflow view. */
+    private boolean isFlowing() {
+        return kind == Converter.Kind.DOCX || kind == Converter.Kind.DOC || kind == Converter.Kind.HWP || kind == Converter.Kind.HWPX;
+    }
+
+    private String layout(String h) {
+        if (h == null || !isFlowing() || prefs().getBoolean("reflow", false)) return h;
+        return Html.paper(h);
     }
 
     private SharedPreferences prefs() {

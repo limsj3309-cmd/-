@@ -23,9 +23,14 @@ public final class Html {
             + ".tb{white-space:pre-wrap}";
 
     public static String page(String bodyClass, String extraCss, String body, String script) {
+        return page(bodyClass, extraCss, body, script, 0);
+    }
+
+    /** @param viewportWidth fixed layout width in CSS px (fitted to the screen and zoomable), or 0 for device width */
+    public static String page(String bodyClass, String extraCss, String body, String script, int viewportWidth) {
         StringBuilder sb = new StringBuilder(body.length() + 2048);
         sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
-                .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,minimum-scale=0.25,maximum-scale=10,user-scalable=yes\">")
+                .append("<meta name=\"viewport\" content=\"").append(viewport(viewportWidth)).append("\">")
                 .append("<style>").append(BASE_CSS);
         if (extraCss != null) sb.append(extraCss);
         sb.append("</style></head><body class=\"").append(bodyClass).append("\">")
@@ -33,6 +38,30 @@ public final class Html {
         if (script != null) sb.append("<script>").append(script).append("</script>");
         sb.append("</body></html>");
         return sb.toString();
+    }
+
+    private static String viewport(int w) {
+        if (w <= 0) return DEVICE_VIEWPORT;
+        return "width=" + w + ",minimum-scale=0.1,maximum-scale=10,user-scalable=yes";
+    }
+
+    private static final String DEVICE_VIEWPORT = "width=device-width,initial-scale=1,minimum-scale=0.25,maximum-scale=10,user-scalable=yes";
+    private static final java.util.regex.Pattern PAGE_WIDTH = java.util.regex.Pattern.compile("<div class=\"page\" data-pw=\"(\\d+)\"");
+
+    /**
+     * "Original page" view for flowing documents: lays the page out at its real paper width
+     * (like the printed document) and lets the WebView fit it to the screen, so the whole page
+     * width is visible and can be pinch-zoomed. Returns the input unchanged if no page width is known.
+     */
+    public static String paper(String html) {
+        java.util.regex.Matcher m = PAGE_WIDTH.matcher(html);
+        if (!m.find()) return html;
+        int content = Util.parseInt(m.group(1), 0);
+        if (content < 200 || content > 3000) content = 640;
+        int pageW = content + 48;
+        String css = "<style>.page{width:" + pageW + "px;max-width:none;margin:10px;padding:28px 24px}hr.pb{margin:18px -24px}</style></head>";
+        return html.replace("content=\"" + DEVICE_VIEWPORT + "\"", "content=\"" + viewport(pageW + 20) + "\"")
+                .replaceFirst("</head>", css);
     }
 
     public static String message(String title, String detail) {

@@ -69,11 +69,11 @@ public final class Sheets {
 
     private static final String CSS =
             "body{background:#fff}"
-            + ".tabs{position:sticky;top:0;z-index:5;display:flex;overflow-x:auto;background:#f1f3f4;border-bottom:1px solid #ccc;white-space:nowrap}"
+            + ".tabs{position:sticky;top:0;left:0;width:100vw;z-index:5;display:flex;overflow-x:auto;background:#f1f3f4;border-bottom:1px solid #ccc;white-space:nowrap}"
             + ".tabs button{border:0;background:none;padding:10px 14px;font-size:14px;color:#333;flex:none}"
             + ".tabs button.on{background:#fff;color:#107c41;font-weight:bold;border-bottom:3px solid #107c41}"
             + ".sh{display:none}.sh.on{display:block}"
-            + ".grid{overflow:auto;-webkit-overflow-scrolling:touch}"
+            + ".grid{display:inline-block;min-width:100%}"
             + "table.x{border-collapse:collapse;font-size:13px;font-family:sans-serif}"
             + "table.x td{border:1px solid #dadce0;padding:2px 4px;white-space:nowrap;height:21px;vertical-align:bottom;overflow:hidden}"
             + "table.x td.n{text-align:right}"

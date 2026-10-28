@@ -172,7 +172,7 @@ public final class DocConverter {
 
     private static String render(StringBuilder t, List<Long> cpFc, Ttp ttp) {
         StringBuilder sb = new StringBuilder(t.length() + 4096);
-        sb.append("<div class=\"page\">");
+        sb.append("<div class=\"page\" data-pw=\"605\">");
         StringBuilder para = new StringBuilder();
         List<String> cellBuf = new ArrayList<>();
         List<String> cells = new ArrayList<>();

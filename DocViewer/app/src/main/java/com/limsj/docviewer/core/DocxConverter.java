@@ -61,7 +61,7 @@ public final class DocxConverter {
                 }
             }
         }
-        sb.append("<div class=\"page\">");
+        sb.append("<div class=\"page\" data-pw=\"").append(pageWidthPx > 0 ? pageWidthPx : 640).append("\">");
         if (body != null) blocks(body);
         if (!usedNotes.isEmpty()) {
             sb.append("<div class=\"fn\">");
