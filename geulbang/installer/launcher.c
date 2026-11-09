@@ -5,7 +5,8 @@
  * 전용 브라우저 프로필(%LOCALAPPDATA%\HyunseoGeulbang\Browser)을 써서 평소 쓰는 브라우저 설정과 섞이지 않게 합니다.
  *
  * 빌드: build-installer.sh 참고 (x86_64-w64-mingw32-gcc, windres)
- * 시험: 환경 변수 GEULBANG_DRYRUN=<파일>이 있으면 실행하지 않고 명령줄을 그 파일(UTF-8)에 기록합니다.
+ * 시험: -DGEULBANG_TEST로 만든 시험판에서만, 환경 변수 GEULBANG_DRYRUN=<파일>이 있으면 실행하지 않고
+ *       명령줄을 그 파일(UTF-8)에 기록합니다. 배포판에는 이 기능이 들어가지 않습니다.
  */
 #ifndef UNICODE
 #define UNICODE
@@ -71,11 +72,19 @@ static int file_exists(const wchar_t *p) {
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+/* 경로의 파일 이름이 기대한 브라우저 실행 파일인지 확인 */
+static int is_browser_exe(const wchar_t *path, const wchar_t *exe) {
+    const wchar_t *base = wcsrchr(path, L'\\');
+    base = base ? base + 1 : path;
+    return _wcsicmp(base, exe) == 0;
+}
+
 static int app_path(const wchar_t *exe, wchar_t *out, DWORD cap) {
     wchar_t key[256] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\";
     wcscat(key, exe);
-    HKEY roots[] = { HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE };
-    REGSAM views[] = { 0, KEY_WOW64_64KEY, KEY_WOW64_32KEY };
+    /* 관리자만 바꿀 수 있는 HKLM을 먼저 보고, 사용자 영역(HKCU)은 마지막에 봄 */
+    HKEY roots[] = { HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER };
+    REGSAM views[] = { KEY_WOW64_64KEY, KEY_WOW64_32KEY, 0 };
     for (int i = 0; i < 3; i++) {
         HKEY h;
         if (RegOpenKeyExW(roots[i], key, 0, KEY_READ | views[i], &h) != ERROR_SUCCESS) continue;
@@ -90,7 +99,7 @@ static int app_path(const wchar_t *exe, wchar_t *out, DWORD cap) {
                 wchar_t *q = wcschr(out, L'"');
                 if (q) *q = 0;
             }
-            if (file_exists(out)) return 1;
+            if (file_exists(out) && is_browser_exe(out, exe)) return 1;
         }
     }
     return 0;
@@ -114,6 +123,7 @@ static int find_browser(wchar_t *out, DWORD cap) {
     return 0;
 }
 
+#ifdef GEULBANG_TEST
 static void write_utf8(const wchar_t *path, const wchar_t *text) {
     HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) return;
@@ -127,10 +137,17 @@ static void write_utf8(const wchar_t *path, const wchar_t *text) {
     }
     CloseHandle(f);
 }
+#endif
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     (void)inst; (void)prev; (void)cmd; (void)show;
-    static wchar_t self[32768], dir[32768], html[32768], browser[32768], profile[32768], target[32768], dry[32768];
+    /* DLL은 시스템 폴더에서만 읽음 (설치 폴더에 놓인 가짜 DLL 차단) */
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+    SetDllDirectoryW(L"");
+    static wchar_t self[32768], dir[32768], html[32768], browser[32768], profile[32768], target[32768];
+#ifdef GEULBANG_TEST
+    static wchar_t dry[32768];
+#endif
 
     GetModuleFileNameW(NULL, self, 32768);
     wcscpy(dir, self);
@@ -150,8 +167,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     int has_doc = 0;
     if (argv && argc > 1 && argv[1][0]) {
         DWORD n = GetFullPathNameW(argv[1], 32768, target, NULL);
-        has_doc = n > 0 && n < 32768;
+        has_doc = n > 0 && n < 32768 && file_exists(target);
     }
+    if (argv) LocalFree(argv);
 
     /* 주소: file:///C:/.../geulbang.html#open=<인코딩한 문서 경로> */
     Buf url = {0};
@@ -184,10 +202,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     buf_add(&line, url.p);
     buf_add(&line, L"\" --allow-file-access-from-files --no-first-run --no-default-browser-check --disable-sync --window-size=1280,900");
 
+#ifdef GEULBANG_TEST
     if (GetEnvironmentVariableW(L"GEULBANG_DRYRUN", dry, 32768)) {
         write_utf8(dry, line.p);
         return 0;
     }
+#endif
 
     if (!found) {
         /* Edge/Chrome이 없으면 기본 브라우저로 엽니다(이때는 탐색기에서 문서를 바로 열 수 없음) */

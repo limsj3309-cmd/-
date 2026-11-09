@@ -19,6 +19,11 @@ const HtmlIO = (() => {
       let v = src.getPropertyValue(name);
       if (!v) continue;
       if (name === 'font-size' && KEYWORD_SIZES[v]) v = KEYWORD_SIZES[v];
+      if (name === 'font-family') {
+        const names = v.split(',').map((x) => cleanFontName(x.replace(/["']/g, ''))).filter((x) => x && !FALLBACK_SET.has(x.toLowerCase()));
+        if (!names.length) continue;
+        v = cssFontStack(names).replace(/"/g, "'");
+      }
       if (name === 'vertical-align' && !/^(super|sub|middle|bottom|top)$/.test(v)) continue;
       if (name === 'width' && !/^(TD|TH|COL|TABLE|IMG)$/.test(el.nodeName)) continue;
       if (/^margin/.test(name) && !BLOCKS.has(el.nodeName)) continue;
@@ -32,7 +37,7 @@ const HtmlIO = (() => {
       const m = bg.match(/(#[0-9a-f]{3,6}|rgba?\([^)]*\))/i);
       if (m && cssColorToHex(m[1])) out.push('background-color:' + m[1]);
     }
-    return out.join(';');
+    return safeStyleText(out.join(';'));
   }
 
   function isPageBreak(el) {
@@ -76,13 +81,20 @@ const HtmlIO = (() => {
         let el;
         if (tag === 'FONT') {
           el = doc.createElement('span');
-          const st = [];
-          if (n.getAttribute('face')) st.push('font-family:' + n.getAttribute('face'));
-          if (n.getAttribute('color')) st.push('color:' + n.getAttribute('color'));
-          if (FONT_SIZES[n.getAttribute('size')]) st.push('font-size:' + FONT_SIZES[n.getAttribute('size')]);
+          // 속성값을 문자열로 이어 붙이지 않고 CSSOM으로 넣어 브라우저가 검증하게 함
           const extra = cleanStyle(n);
-          if (extra) st.push(extra);
-          if (st.length) el.setAttribute('style', st.join(';'));
+          if (extra) el.setAttribute('style', extra);
+          const face = n.getAttribute('face');
+          if (face) {
+            const names = face.split(',').map(cleanFontName).filter(Boolean);
+            if (names.length) el.style.fontFamily = cssFontStack(names);
+          }
+          const color = n.getAttribute('color');
+          if (color && cssColorToHex(color.trim())) el.style.color = '#' + cssColorToHex(color.trim());
+          else if (color && /^[a-z]{3,20}$/i.test(color.trim())) el.style.color = color.trim();
+          if (FONT_SIZES[n.getAttribute('size')]) el.style.fontSize = FONT_SIZES[n.getAttribute('size')];
+          const safe = safeStyleText(el.getAttribute('style'));
+          if (safe) el.setAttribute('style', safe); else el.removeAttribute('style');
         } else {
           el = doc.createElement(tag === 'CENTER' || tag === 'P' ? 'div' : tag.toLowerCase());
           const style = cleanStyle(n);
@@ -91,7 +103,7 @@ const HtmlIO = (() => {
           if (style) parts.push(style);
           if (tag === 'CENTER') parts.push('text-align:center');
           else if (align && /^(left|center|right|justify)$/i.test(align) && BLOCKS.has(tag) && !/text-align/.test(style)) parts.push('text-align:' + align.toLowerCase());
-          if (parts.length) el.setAttribute('style', parts.join(';'));
+          if (parts.length) el.setAttribute('style', safeStyleText(parts.join(';')));
           if (tag === 'A') {
             const href = n.getAttribute('href') || '';
             if (/^(https?:|mailto:)/i.test(href)) el.setAttribute('href', href);

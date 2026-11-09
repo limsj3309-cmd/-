@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """src/ 의 파일들을 하나로 묶어 geulbang.html(단일 파일, 오프라인 실행용)을 만듭니다."""
 import base64
+import hashlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -24,6 +26,20 @@ def main():
     icon = base64.b64encode((ROOT / "assets" / "icon-64.png").read_bytes()).decode("ascii")
     html = html.replace("__FAVICON__", "data:image/png;base64," + icon)
     out = html.replace("/*INLINE_CSS*/", css).replace("/*INLINE_JS*/", js)
+    # 보안 정책(CSP): 이 파일에 든 스크립트(해시로 지정)만 실행하고, 외부로 나가는 요청은 모두 막음.
+    #  - 그림은 문서에 들어 있는 data:/blob: 만, 통신은 '연결 프로그램'으로 넘겨받은 로컬 파일(file:) 읽기만 허용
+    scripts = re.findall(r"<script>(.*?)</script>", out, re.S)
+    if len(scripts) != 1:
+        raise SystemExit("인라인 스크립트는 정확히 하나여야 합니다")
+    digest = base64.b64encode(hashlib.sha256(scripts[0].encode("utf-8")).digest()).decode("ascii")
+    csp = ("default-src 'none'; "
+           f"script-src 'sha256-{digest}'; "
+           "style-src 'unsafe-inline'; "
+           "img-src data: blob:; "
+           "connect-src file:; "
+           "font-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; "
+           "media-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'")
+    out = out.replace("__CSP__", csp)
     target = ROOT / "geulbang.html"
     target.write_text(out, encoding="utf-8")
     print(f"{target.name}: {len(out.encode('utf-8')) / 1024:.0f} KB")

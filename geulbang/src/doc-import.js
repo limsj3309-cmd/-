@@ -289,7 +289,7 @@ const DocImport = (() => {
       }
       const [fo, lo] = fcLcb(74);
       if (lo > 4) {
-        const n = tdv.getInt32(fo, true);
+        const n = Math.min(tdv.getInt32(fo, true), Math.floor((lo - 4) / 16));
         for (let k = 0; k < n; k++) lfos.push(tdv.getInt32(fo + 4 + k * 16, true));
       }
     }
@@ -326,7 +326,10 @@ const DocImport = (() => {
     for (const pc of pieces) {
       if (pc.cpS >= ccpText) break;
       const end = Math.min(pc.cpE, ccpText);
-      const n = end - pc.cpS;
+      // 조각이 가리키는 범위를 실제 데이터 크기로 제한 (비정상 파일 대비)
+      const avail = pc.fc >= wd.length ? 0 : pc.compressed ? wd.length - pc.fc : Math.floor((wd.length - pc.fc) / 2);
+      const n = Math.max(0, Math.min(end - pc.cpS, avail));
+      if (chars.length + n > 50000000) throw new Error('문서가 너무 큽니다.');
       if (pc.compressed) {
         const s = cp1252.decode(wd.subarray(pc.fc, pc.fc + n));
         for (let k = 0; k < n; k++) { chars.push(s[k] || ''); fcs.push(pc.fc + k); }

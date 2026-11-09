@@ -56,9 +56,23 @@ const FONT_ALIAS = (() => {
   return m;
 })();
 
+/** 문서에서 읽은 글꼴 이름 정화: 글자·숫자·공백과 몇몇 기호만 남김.
+    (따옴표나 ; 로 CSS를 끼워 넣어 외부 주소를 불러오는 공격 차단) */
+function cleanFontName(name) {
+  return String(name == null ? '' : name).replace(/[^\p{L}\p{N} ._&+-]/gu, '').replace(/\s+/g, ' ').trim().slice(0, 64);
+}
+
 function canonicalFont(name) {
-  const f = FONT_ALIAS.get(String(name).trim().toLowerCase());
-  return f ? f.name : String(name).trim();
+  const n = cleanFontName(name);
+  const f = FONT_ALIAS.get(n.toLowerCase());
+  return f ? f.name : n;
+}
+
+/** 인라인 스타일 문자열에서 외부 자원을 부를 수 있는 선언 제거 */
+function safeStyleText(css) {
+  return String(css || '').split(';').map((d) => d.trim())
+    .filter((d) => d && /^[a-z-]+\s*:/i.test(d) && !/url\s*\(|image(-set)?\s*\(|expression|javascript:|@import|\\|[<>]/i.test(d))
+    .join(';');
 }
 
 function quoteFont(n) {
@@ -75,7 +89,7 @@ function cssFontStack(names) {
     seen.add(n.toLowerCase());
     out.push(n);
   };
-  names.filter(Boolean).forEach((n, i) => {
+  names.map(cleanFontName).filter(Boolean).forEach((n, i) => {
     const f = FONT_ALIAS.get(n.toLowerCase());
     if (f) {
       add(f.name);

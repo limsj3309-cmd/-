@@ -17,6 +17,8 @@ const DocxImport = (() => {
   const descendants = (el, name) => (el ? Array.from(el.getElementsByTagNameNS('*', name)) : []);
 
   function parseXml(text) {
+    // Office 문서에는 DTD가 없음. DTD(엔티티 확장 공격 등)가 있으면 거부
+    if (/<!DOCTYPE|<!ENTITY/i.test(text.slice(0, 4096)) || /<!ENTITY/i.test(text)) throw new Error('지원하지 않는 XML 구조가 들어 있습니다(비정상 파일일 수 있음).');
     const d = new DOMParser().parseFromString(text, 'application/xml');
     if (d.getElementsByTagName('parsererror').length) throw new Error('XML 해석 오류');
     return d;

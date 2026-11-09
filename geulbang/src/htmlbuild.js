@@ -78,7 +78,7 @@ const HtmlBuild = (() => {
       }
       if (style) {
         const span = doc.createElement('span');
-        span.setAttribute('style', style);
+        span.setAttribute('style', safeStyleText(style));
         target.appendChild(span);
         target = span;
       }

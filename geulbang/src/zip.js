@@ -16,15 +16,36 @@ const Zip = (() => {
     return (c ^ 0xffffffff) >>> 0;
   }
 
-  async function pipe(bytes, stream) {
-    const out = new Blob([bytes]).stream().pipeThrough(stream);
-    return new Uint8Array(await new Response(out).arrayBuffer());
+  // 압축 폭탄 등 비정상 파일로 메모리가 바닥나지 않도록 한도를 둠
+  const MAX_ENTRY = 256 * 1024 * 1024;   // 파일 하나를 풀었을 때 최대 크기
+  const MAX_TOTAL = 512 * 1024 * 1024;   // 한 문서에서 풀어낸 전체 크기
+  const MAX_ENTRIES = 20000;
+
+  async function pipe(bytes, stream, limit) {
+    const reader = new Blob([bytes]).stream().pipeThrough(stream).getReader();
+    const chunks = [];
+    let size = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (limit && size > limit) {
+        await reader.cancel().catch(() => {});
+        throw new Error('문서 안의 데이터가 너무 큽니다(비정상 파일일 수 있음).');
+      }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(size);
+    let o = 0;
+    for (const c of chunks) { out.set(c, o); o += c.length; }
+    return out;
   }
 
   async function inflateRaw(data, crc, size) {
     try {
-      return await pipe(data, new DecompressionStream('deflate-raw'));
+      return await pipe(data, new DecompressionStream('deflate-raw'), Math.min(MAX_ENTRY, budget()));
     } catch (e) {
+      if (/너무 큽니다/.test(e.message)) throw e;
       // 구형 브라우저: raw deflate 데이터를 gzip 컨테이너로 감싸서 해제
       const gz = new Uint8Array(10 + data.length + 8);
       gz.set([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff]);
@@ -32,7 +53,7 @@ const Zip = (() => {
       const dv = new DataView(gz.buffer);
       dv.setUint32(10 + data.length, crc, true);
       dv.setUint32(14 + data.length, size >>> 0, true);
-      return await pipe(gz, new DecompressionStream('gzip'));
+      return await pipe(gz, new DecompressionStream('gzip'), Math.min(MAX_ENTRY, budget()));
     }
   }
 
@@ -50,7 +71,11 @@ const Zip = (() => {
   }
 
   /** ZIP 바이트를 읽어 { 경로: () => Promise<Uint8Array> } 형태의 맵을 반환 */
+  let used = 0;
+  const budget = () => Math.max(0, MAX_TOTAL - used);
+
   function read(buf) {
+    used = 0;
     const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
     const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
     let eocd = -1;
@@ -59,6 +84,7 @@ const Zip = (() => {
     }
     if (eocd < 0) throw new Error('ZIP 형식이 아닙니다.');
     const count = dv.getUint16(eocd + 10, true);
+    if (count > MAX_ENTRIES) throw new Error('ZIP 항목이 너무 많습니다.');
     let p = dv.getUint32(eocd + 16, true);
     const entries = {};
     const utf8 = new TextDecoder('utf-8');
@@ -78,10 +104,16 @@ const Zip = (() => {
       const lExtraLen = dv.getUint16(local + 28, true);
       const start = local + 30 + lNameLen + lExtraLen;
       const data = u8.subarray(start, start + csize);
+      if (start + csize > u8.length) continue; // 잘린 항목은 무시
       entries[name] = async () => {
-        if (method === 0) return data;
-        if (method === 8) return inflateRaw(data, crc, usize);
-        throw new Error('지원하지 않는 압축 방식: ' + method);
+        if (usize > MAX_ENTRY) throw new Error('문서 안의 데이터가 너무 큽니다(비정상 파일일 수 있음).');
+        let out;
+        if (method === 0) out = data;
+        else if (method === 8) out = await inflateRaw(data, crc, usize);
+        else throw new Error('지원하지 않는 압축 방식: ' + method);
+        used += out.length;
+        if (used > MAX_TOTAL) throw new Error('문서 안의 데이터가 너무 큽니다(비정상 파일일 수 있음).');
+        return out;
       };
     }
     return entries;

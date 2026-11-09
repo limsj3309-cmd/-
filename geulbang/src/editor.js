@@ -251,6 +251,11 @@ function editLink() {
     let url = v.url.trim();
     if (!url || url === 'https://') return;
     if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = (/@/.test(url) ? 'mailto:' : 'https://') + url;
+    // 웹·메일 주소만 허용 (javascript: 등 실행되는 주소 차단)
+    if (!/^(https?:|mailto:|ftp:)/i.test(url)) {
+      Dialog.alert('링크를 넣을 수 없습니다', 'http://, https://, mailto: 로 시작하는 주소만 쓸 수 있습니다.');
+      return;
+    }
     restore();
     if (a && (!range || range.collapsed)) { selectNode(a); exec('createLink', url); }
     else if (hasText) exec('createLink', url);
@@ -614,18 +619,36 @@ function bindEditor(ed) {
     if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
   });
   ed.addEventListener('drop', (e) => {
-    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-    if (!files.length) return;
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const files = Array.from(dt.files || []);
+    // 편집기 안에서 끌어 옮기는 것은 브라우저 기본 동작(이동)에 맡김
+    if (!files.length && internalDrag) return;
     e.preventDefault();
     e.stopPropagation();
-    const imgs = files.filter((f) => /^image\//.test(f.type));
-    if (imgs.length) {
-      const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
-      if (r) { const s = getSelection(); s.removeAllRanges(); s.addRange(r); App.savedRange = r.cloneRange(); }
-      insertImageFiles(imgs);
-    } else FileOps.openFile(files[0]);
+    const r = document.caretRangeFromPoint ? document.caretRangeFromPoint(e.clientX, e.clientY) : null;
+    const placeAtDrop = () => {
+      if (!r || !ed.contains(r.startContainer)) return;
+      ed.focus({ preventScroll: true });
+      const s = getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      App.savedRange = r.cloneRange();
+    };
+    if (files.length) {
+      const imgs = files.filter((f) => /^image\//.test(f.type));
+      if (imgs.length) { placeAtDrop(); insertImageFiles(imgs); } else FileOps.openFile(files[0]);
+      return;
+    }
+    // 다른 프로그램·웹 페이지에서 끌어 온 글은 붙여넣기와 똑같이 정화해서 넣음
+    placeAtDrop();
+    insertTransfer(dt);
   });
 }
+
+let internalDrag = false;
+document.addEventListener('dragstart', (e) => { internalDrag = !!(App.editor && App.editor.contains(e.target)); });
+document.addEventListener('dragend', () => { internalDrag = false; });
 
 function onEditorKey(e) {
   if (e.isComposing || e.keyCode === 229) return;
@@ -661,21 +684,24 @@ function onEditorKey(e) {
 }
 
 function onPaste(e) {
-  const dt = e.clipboardData;
-  if (!dt) return;
+  if (!e.clipboardData) return;
+  e.preventDefault();
+  insertTransfer(e.clipboardData);
+}
+
+/** 붙여넣기·외부에서 끌어 놓기 공통: HTML은 정화한 뒤 넣음 */
+function insertTransfer(dt) {
   const html = dt.getData('text/html');
   const text = dt.getData('text/plain');
   const files = Array.from(dt.files || []).filter((f) => /^image\//.test(f.type));
   const htmlHasText = html && new DOMParser().parseFromString(html, 'text/html').body.textContent.trim();
-  e.preventDefault();
   if (files.length && !htmlHasText) { insertImageFiles(files); return; }
   if (html) {
-    const frag = HtmlIO.sanitize(html, document);
     const box = document.createElement('div');
-    box.appendChild(frag);
+    box.appendChild(HtmlIO.sanitize(html, document));
     // 문단 하나만 붙여넣을 때는 감싸는 블록을 벗겨서 현재 문단에 이어 붙임
     if (box.children.length === 1 && /^(P|DIV)$/.test(box.firstChild.nodeName) && box.childNodes.length === 1 && !box.firstChild.getAttribute('style')) {
-      box.innerHTML = box.firstChild.innerHTML;
+      box.replaceChildren(...box.firstChild.childNodes);
     }
     box.querySelectorAll('br').forEach((br) => { if (!br.nextSibling && br.parentNode === box && box.childNodes.length > 1) br.remove(); });
     exec('insertHTML', box.innerHTML);

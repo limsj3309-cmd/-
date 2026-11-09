@@ -267,6 +267,7 @@ const FileOps = {
     if (!(await this.confirmDiscard())) return;
     createEditor();
     setFile(null, '제목 없음', null, false);
+    saveDraft();
     App.editor.focus();
   },
 
@@ -297,6 +298,7 @@ const FileOps = {
     // docx/txt만 같은 파일에 바로 덮어씀. 그 밖의 형식은 처음 저장할 때 형식을 고르게 함
     const overwrite = !!handle && ((fmt === 'docx' && res.kind === 'docx') || (fmt === 'txt' && res.kind === 'txt'));
     setFile(handle, file.name, fmt, overwrite);
+    saveDraft();
     const skipped = (res.stats && res.stats.skippedImages) || 0;
     let msg = `'${file.name}'을(를) 열었습니다.`;
     if (skipped) msg += ` 표시할 수 없는 그림·개체 ${skipped}개는 제외했습니다.`;
@@ -386,9 +388,12 @@ function scheduleAutosave() {
   clearTimeout(draftTimer);
   draftTimer = setTimeout(saveDraft, 1500);
 }
+// 복구용 임시 저장은 '저장하지 않은 변경'이 있을 때만 남기고, 저장·새 문서·열기 뒤에는 지움.
+// (브라우저 저장소에 문서 내용이 필요 이상 오래 남지 않도록)
 function saveDraft() {
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ html: App.editor.innerHTML, name: App.fileName, t: Date.now(), dirty: App.dirty }));
+    if (!App.dirty) { localStorage.removeItem(DRAFT_KEY); return; }
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ html: App.editor.innerHTML, name: App.fileName, t: Date.now(), dirty: true }));
   } catch (e) { /* 저장 공간 부족 등은 무시 */ }
 }
 function loadDraft() {
@@ -752,14 +757,18 @@ function init() {
     if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) { dragDepth++; document.body.classList.add('dropzone'); }
   });
   window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dropzone'); } });
-  window.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); });
+  // 편집기 밖에 끌어 놓은 링크·글 때문에 창이 다른 주소로 넘어가지 않게 막음
+  const outsideEditor = (e) => !(App.editor && App.editor.contains(e.target));
+  window.addEventListener('dragover', (e) => {
+    if (outsideEditor(e) || (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files'))) e.preventDefault();
+  });
   window.addEventListener('drop', (e) => {
     dragDepth = 0;
     document.body.classList.remove('dropzone');
-    const f = e.dataTransfer && e.dataTransfer.files[0];
-    if (!f) return;
+    if (!outsideEditor(e)) return;
     e.preventDefault();
-    FileOps.openFile(f);
+    const f = e.dataTransfer && e.dataTransfer.files[0];
+    if (f) FileOps.openFile(f);
   });
 
   window.addEventListener('beforeunload', (e) => {
