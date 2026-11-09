@@ -48,6 +48,8 @@ jobs:
     needs: security-scan
     runs-on: windows-latest
     timeout-minutes: 40
+    permissions:
+      contents: write # Releases 에 설치 파일을 올리기 위해 (이 job 에만 부여)
     defaults:
       run:
         shell: pwsh
@@ -126,3 +128,26 @@ jobs:
             pdf_tool/dist/PdfEditor-Setup-*.exe
             pdf_tool/dist/PdfEditor-Setup-*.exe.sha256
           if-no-files-found: error
+
+      - name: Releases 에 설치 파일 올리기 (바로 다운로드 링크)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          $tag = "pdf-editor-v$env:VERSION"
+          # 같은 버전을 다시 빌드하면 이전 릴리스를 지우고 최신 빌드로 교체
+          gh release view $tag --repo $env:REPO *> $null
+          if ($LASTEXITCODE -eq 0) { gh release delete $tag --repo $env:REPO --yes --cleanup-tag }
+          $notes = @"
+          ## 설치 방법
+          1. 아래 Assets 에서 **PdfEditor-Setup-$env:VERSION.exe** 를 눌러 다운로드
+          2. 실행 → "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**
+          3. 안내에 따라 설치 (관리자 권한 불필요)
+
+          SHA-256: ``$((Get-Content (Get-ChildItem dist\*.sha256 | Select-Object -First 1).FullName).Split(' ')[0])``
+          "@
+          $files = (Get-ChildItem dist\PdfEditor-Setup-*.exe*).FullName
+          gh release create $tag @files --repo $env:REPO --target $env:SHA --title "PDF 편집기 $env:VERSION" --notes $notes --latest
+          if ($LASTEXITCODE -ne 0) { throw "릴리스 생성 실패" }
+          "https://github.com/$env:REPO/releases/tag/$tag"
