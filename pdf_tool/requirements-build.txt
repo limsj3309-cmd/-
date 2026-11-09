@@ -1,0 +1,4 @@
+# 빌드/테스트용
+-r requirements.txt
+pyinstaller==6.22.3
+pytest==9.2.0

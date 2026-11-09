@@ -1,0 +1,86 @@
+# PDF 편집기 - 윈도우 설치 파일 자동 빌드
+# pdf_tool 폴더가 바뀌어 push 되면 실행되고, 결과 설치 파일은
+# Actions 실행 페이지 하단의 "Artifacts" 에서 내려받을 수 있다.
+name: PDF 편집기 윈도우 빌드
+
+on:
+  push:
+    paths:
+      - "pdf_tool/**"
+      - ".github/workflows/pdf-tool-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: pdf_tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pdf_tool/requirements*.txt
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: 테스트
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: 실행 파일 만들기 (PyInstaller)
+        run: |
+          python installer/make_icon.py installer/app.ico
+          pyinstaller --noconfirm --clean installer/pdftool.spec --distpath dist --workpath build
+
+      - name: 실행 파일 자체 점검 (실제 윈도우 화면 모드)
+        env:
+          QT_QPA_PLATFORM: windows
+        run: |
+          $p = Start-Process -FilePath "dist\PdfEditor\PdfEditor.exe" -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "selftest 실패 (exit $($p.ExitCode))" }
+          "selftest OK"
+          "{0:N1} MB" -f ((Get-ChildItem dist\PdfEditor -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: 설치 파일 만들기 (Inno Setup)
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          $version = python -c "import pdftool; print(pdftool.__version__)"
+          $defs = @("/DAppVersion=$version")
+          if (Test-Path (Join-Path (Split-Path $iscc) "Languages\Korean.isl")) { $defs += "/DKOREAN" }
+          & $iscc @defs installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패" }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-ChildItem dist\*.exe | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - name: 설치 파일 무인 설치/실행 확인
+        run: |
+          $setup = Get-ChildItem dist\PdfEditor-Setup-*.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "PdfEditorInstall"
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "설치 실패 (exit $($p.ExitCode))" }
+          $env:QT_QPA_PLATFORM = "windows"
+          $p = Start-Process -FilePath (Join-Path $dir "PdfEditor.exe") -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "설치본 selftest 실패" }
+          "installed selftest OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PdfEditor-Setup-${{ env.VERSION }}
+          path: pdf_tool/dist/PdfEditor-Setup-*.exe
+          if-no-files-found: error
