@@ -51,7 +51,9 @@ public final class Cfb implements Closeable {
             int numFat = Util.i32(h, 0x2C);
             int firstDir = Util.i32(h, 0x30);
             int cutoff = Util.i32(h, 0x38);
-            miniCutoff = cutoff > 0 ? cutoff : 4096;
+            // The format fixes this at 4096; trusting the header would let a file force huge allocations.
+            miniCutoff = 4096;
+            if (cutoff != 4096 && cutoff <= 0) throw new IOException("bad mini stream cutoff");
             int firstMiniFat = Util.i32(h, 0x3C);
             int firstDifat = Util.i32(h, 0x44);
             int numDifat = Util.i32(h, 0x48);
@@ -147,7 +149,7 @@ public final class Cfb implements Closeable {
 
     private byte[] readChain(int start, long size) throws IOException {
         if (size > MAX_STREAM) throw new IOException("stream too large");
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(size > 0 ? (int) size : sectorSize * 4);
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream(size > 0 ? (int) Math.min(size, fileLen + sectorSize) : sectorSize * 4);
         byte[] sec = new byte[sectorSize];
         int s = start;
         int guard = fat.length + 1;

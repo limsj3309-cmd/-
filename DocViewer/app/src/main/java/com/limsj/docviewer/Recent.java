@@ -64,7 +64,7 @@ final class Recent {
         it.name = name;
         it.time = System.currentTimeMillis();
         items.add(0, it);
-        while (items.size() > MAX) items.remove(items.size() - 1);
+        while (items.size() > MAX) release(c, items.remove(items.size() - 1).uri);
         save(c, items);
     }
 
@@ -72,9 +72,20 @@ final class Recent {
         List<Item> items = load(c);
         for (int i = items.size() - 1; i >= 0; i--) if (items.get(i).uri.equals(uri)) items.remove(i);
         save(c, items);
+        release(c, uri);
     }
 
     static void clear(Context c) {
+        for (Item it : load(c)) release(c, it.uri);
         save(c, new ArrayList<>());
+    }
+
+    /** Gives back long-term read access to a file that is no longer in the list. */
+    private static void release(Context c, String uri) {
+        try {
+            c.getContentResolver().releasePersistableUriPermission(android.net.Uri.parse(uri), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+            // not a persisted grant (e.g. opened from another app)
+        }
     }
 }

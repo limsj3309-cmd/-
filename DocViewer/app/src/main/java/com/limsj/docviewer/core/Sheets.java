@@ -11,6 +11,8 @@ public final class Sheets {
     public static final int MAX_ROWS = 5000;
     public static final int MAX_COLS = 256;
     public static final int MAX_CELLS = 400_000;
+    private static final int MAX_MERGES = 20_000;
+    private static final long MAX_COVERED = 1_000_000;
 
     public static final class Cell {
         public String text;
@@ -135,10 +137,21 @@ public final class Sheets {
         // merge maps
         Map<Long, int[]> mergeStart = new HashMap<>();
         java.util.HashSet<Long> covered = new java.util.HashSet<>();
+        // Merges come from the file, so they are bounded: overlapping ranges (invalid anyway) are
+        // skipped and the total number of covered cells is capped, otherwise a tiny hostile file
+        // could keep the converter busy for minutes.
+        long budget = MAX_COVERED;
+        int seen = 0;
         for (int[] m : s.merges) {
+            if (++seen > MAX_MERGES) break;
             int r2 = Math.min(m[2], maxRow), c2 = Math.min(m[3], maxCol);
-            if (m[0] > r2 || m[1] > c2) continue;
-            if ((long) (r2 - m[0] + 1) * (c2 - m[1] + 1) > 200000) continue;
+            if (m[0] < 0 || m[1] < 0 || m[0] > r2 || m[1] > c2) continue;
+            long area = (long) (r2 - m[0] + 1) * (c2 - m[1] + 1);
+            if (area > 200000 || area > budget) continue;
+            long startKey = key(m[0], m[1]);
+            if (covered.contains(startKey) || mergeStart.containsKey(startKey)
+                    || covered.contains(key(r2, c2)) || mergeStart.containsKey(key(r2, c2))) continue;
+            budget -= area;
             mergeStart.put(key(m[0], m[1]), new int[]{r2 - m[0] + 1, c2 - m[1] + 1});
             for (int r = m[0]; r <= r2; r++)
                 for (int c = m[1]; c <= c2; c++)

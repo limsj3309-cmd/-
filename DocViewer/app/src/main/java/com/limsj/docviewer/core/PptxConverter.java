@@ -723,7 +723,20 @@ public final class PptxConverter {
         }
     }
 
+    private int smartArtDepth;
+
     private boolean smartArt(XNode gd, Part src, Part slide, Box b) {
+        // A diagram drawing can itself contain diagram frames (or point back at itself).
+        if (smartArtDepth >= 2) return false;
+        smartArtDepth++;
+        try {
+            return smartArtInner(gd, src, slide, b);
+        } finally {
+            smartArtDepth--;
+        }
+    }
+
+    private boolean smartArtInner(XNode gd, Part src, Part slide, Box b) {
         XNode ids = gd.child("relIds");
         if (ids == null) return false;
         String dm = src.rels.get(ids.rel("dm"));

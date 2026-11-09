@@ -79,6 +79,8 @@ public class ViewerActivity extends Activity {
     private String name = "문서";
     private Converter.Kind kind = Converter.Kind.UNKNOWN;
     private volatile boolean destroyed;
+    /** Incremented for every document request; results of older requests are discarded. */
+    private volatile int generation;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -164,30 +166,35 @@ public class ViewerActivity extends Activity {
         setLoading(true, "문서를 여는 중입니다…");
         final Uri u = uri;
         final int screenW = getResources().getDisplayMetrics().widthPixels;
-        worker.execute(() -> load(u, screenW));
+        final int gen = ++generation;
+        worker.execute(() -> load(u, screenW, gen));
     }
 
     // ---------- loading (background thread) ----------
 
-    private void load(Uri u, int screenW) {
+    private void load(Uri u, int screenW, int gen) {
         Doc result = null;
+        File f = null;
+        Converter.Kind detected = Converter.Kind.UNKNOWN;
         String errTitle = null, errMsg = null;
         try {
+            if (gen != generation) return; // a newer document was requested meanwhile
             String n = displayName(u);
-            name = n;
             main.post(() -> {
+                if (gen != generation) return;
+                name = n;
                 ActionBar ab = getActionBar();
-                if (ab != null) ab.setTitle(name);
+                if (ab != null) ab.setTitle(n);
             });
-            File f = copyToCache(u, n);
-            temp = f;
-            kind = Converter.detect(f, n);
-            if (kind == Converter.Kind.UNKNOWN) {
+            f = copyToCache(u, n);
+            Converter.Kind k = Converter.detect(f, n);
+            detected = k;
+            if (k == Converter.Kind.UNKNOWN) {
                 if (Converter.isEncryptedOoxml(f)) throw new Doc.UserError("암호가 설정된 문서는 열 수 없습니다.");
                 throw new Doc.UserError("PDF, 워드, 엑셀, 파워포인트, 한글 문서만 열 수 있습니다.");
             }
-            if (kind == Converter.Kind.PDF) result = PdfDoc.open(f, screenW);
-            else result = Converter.convert(f, kind);
+            if (k == Converter.Kind.PDF) result = PdfDoc.open(f, screenW);
+            else result = Converter.convert(f, k);
             try {
                 Recent.add(this, u.toString(), n);
             } catch (Exception ignored) {
@@ -209,12 +216,20 @@ public class ViewerActivity extends Activity {
             errMsg = "파일이 손상되었거나 지원하지 않는 형식입니다.\n(" + t.getClass().getSimpleName() + ")";
         }
         final Doc d = result;
+        final File file = f;
+        final Converter.Kind dk = detected;
         final String et = errTitle, em = errMsg;
         main.post(() -> {
-            if (destroyed) {
-                if (d != null) d.close();
+            if (destroyed || gen != generation || web == null) {
+                // stale (another document was opened) or the screen is gone: release everything
+                background(() -> {
+                    if (d != null) d.close();
+                    if (file != null) file.delete();
+                });
                 return;
             }
+            temp = file;
+            kind = dk;
             if (d != null) show(d);
             else showError(et, em);
         });
@@ -244,6 +259,7 @@ public class ViewerActivity extends Activity {
         String ext = Util.ext(n);
         if (!ext.matches("[a-z0-9]{1,8}")) ext = "";
         File f = new File(dir, System.currentTimeMillis() + "_" + Math.abs(u.hashCode()) + (ext.isEmpty() ? "" : "." + ext));
+        boolean ok = false;
         try (InputStream in = getContentResolver().openInputStream(u); OutputStream out = new FileOutputStream(f)) {
             if (in == null) throw new java.io.FileNotFoundException();
             byte[] buf = new byte[64 * 1024];
@@ -255,6 +271,9 @@ public class ViewerActivity extends Activity {
                 if (total > MAX_FILE) throw new Doc.UserError("파일이 너무 큽니다. (최대 500MB)");
                 out.write(buf, 0, r);
             }
+            ok = true;
+        } finally {
+            if (!ok) f.delete(); // never leave partial copies of a document behind
         }
         return f;
     }
@@ -262,6 +281,8 @@ public class ViewerActivity extends Activity {
     // ---------- UI ----------
 
     private void show(Doc d) {
+        final Doc old = doc;
+        if (old != null && old != d) background(old::close);
         doc = d;
         rawHtml = d.html;
         html = layout(rawHtml);
@@ -388,11 +409,14 @@ public class ViewerActivity extends Activity {
     }
 
     private void confirmExternal(Uri u) {
-        String shown = u.toString();
+        // Strip invisible / direction-override characters so a link cannot disguise its real address.
+        String shown = u.toString().replaceAll("[\\p{Cf}\\p{Cc}]", "");
         if (shown.length() > 300) shown = shown.substring(0, 300) + "…";
+        String host = u.getHost() == null ? "" : u.getHost().replaceAll("[\\p{Cf}\\p{Cc}]", "");
         new AlertDialog.Builder(this)
                 .setTitle("외부 링크 열기")
-                .setMessage("문서에 들어 있는 링크입니다. 신뢰할 수 있는 주소인지 확인하세요.\n\n" + shown)
+                .setMessage("문서에 들어 있는 링크입니다. 신뢰할 수 있는 주소인지 확인하세요.\n\n"
+                        + (host.isEmpty() ? "" : "사이트: " + host + "\n\n") + shown)
                 .setNegativeButton("취소", null)
                 .setPositiveButton("열기", (d, w) -> {
                     try {
@@ -584,10 +608,19 @@ public class ViewerActivity extends Activity {
         doc = null;
         final File t = temp;
         temp = null;
-        worker.execute(() -> {
+        background(() -> {
             if (d != null) d.close();
             if (t != null) t.delete();
         });
+    }
+
+    /** Runs cleanup off the UI thread, even after the worker has been shut down in onDestroy. */
+    private void background(Runnable r) {
+        try {
+            worker.execute(r);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            new Thread(r, "doc-cleanup").start();
+        }
     }
 
     @Override

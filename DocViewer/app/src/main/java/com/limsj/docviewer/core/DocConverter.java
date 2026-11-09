@@ -58,7 +58,7 @@ public final class DocConverter {
                 text.append(ch);
                 cpFc.add(fc);
             }
-            if (text.length() > 20_000_000) break;
+            if (text.length() > 5_000_000) break; // ~ thousands of pages; bounds memory
         }
         Ttp ttp = new Ttp(wd, table, fcPapx, lcbPapx);
         String html = render(text, cpFc, ttp);

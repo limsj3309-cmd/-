@@ -516,10 +516,16 @@ public final class HwpConverter {
         long total = 0;
         for (HCell c : cells) if (c.row == 0) total += c.width;
         sb.append("<div class=\"tw\"><table class=\"bd\" style=\"width:100%\"><tbody>");
+        java.util.Map<Integer, List<HCell>> byRow = new java.util.HashMap<>();
+        for (HCell c : cells) {
+            if (c.row < 0 || c.row > maxRow) continue;
+            List<HCell> l = byRow.get(c.row);
+            if (l == null) byRow.put(c.row, l = new ArrayList<>());
+            l.add(c);
+        }
         for (int r = 0; r <= maxRow; r++) {
             sb.append("<tr>");
-            List<HCell> row = new ArrayList<>();
-            for (HCell c : cells) if (c.row == r) row.add(c);
+            List<HCell> row = byRow.containsKey(r) ? byRow.get(r) : new ArrayList<>();
             row.sort((a, b) -> Integer.compare(a.col, b.col));
             for (HCell c : row) cell(c, total);
             sb.append("</tr>");

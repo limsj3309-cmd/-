@@ -15,6 +15,7 @@ import java.io.IOException;
 
 /** PDF pages rendered on demand by the system PdfRenderer and shown as lazy images. */
 final class PdfDoc implements Doc.Res, Closeable {
+    private static final int MAX_PAGES = 3000;
     private final ParcelFileDescriptor fd;
     private final PdfRenderer renderer;
     private final int targetWidth;
@@ -43,7 +44,8 @@ final class PdfDoc implements Doc.Res, Closeable {
             throw new Doc.UserError("손상되었거나 지원하지 않는 PDF입니다.");
         }
         try {
-            int n = p.renderer.getPageCount();
+            int total = p.renderer.getPageCount();
+            int n = Math.min(total, MAX_PAGES);
             StringBuilder sb = new StringBuilder(n * 160 + 512);
             for (int i = 0; i < n; i++) {
                 int w, h;
@@ -58,6 +60,7 @@ final class PdfDoc implements Doc.Res, Closeable {
                         .append("\"><img loading=\"lazy\" src=\"res/page/").append(i).append("\" alt=\"\"></div>")
                         .append("<div class=\"pn\">").append(i + 1).append(" / ").append(n).append("</div>");
             }
+            if (total > n) sb.append("<div class=\"pn\">앞쪽 ").append(n).append("쪽까지만 표시합니다 (전체 ").append(total).append("쪽)</div>");
             if (n == 0) return new Doc(Html.message("빈 PDF", "페이지가 없습니다."), null, p);
             String css = "body{background:#525659}"
                     + ".pg{background:#fff;max-width:1200px;margin:8px auto 0;box-shadow:0 1px 6px rgba(0,0,0,.5)}"
@@ -82,7 +85,7 @@ final class PdfDoc implements Doc.Res, Closeable {
         Bitmap bmp = null;
         try {
             synchronized (this) {
-                if (closed || idx < 0 || idx >= renderer.getPageCount()) return null;
+                if (closed || idx < 0 || idx >= Math.min(renderer.getPageCount(), MAX_PAGES)) return null;
                 PdfRenderer.Page page = renderer.openPage(idx);
                 try {
                     int pw = Math.max(1, page.getWidth()), ph = Math.max(1, page.getHeight());
