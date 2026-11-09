@@ -5,14 +5,18 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcelable;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -46,6 +50,7 @@ import com.limsj.docviewer.core.Util;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -496,6 +501,8 @@ public class ViewerActivity extends Activity {
         menu.add(0, 2, 1, "글자 크기");
         menu.add(0, 6, 2, "모바일 맞춤 보기").setCheckable(true);
         menu.add(0, 3, 2, "맨 위로");
+        menu.add(0, 7, 3, "다운로드 폴더에 저장");
+        menu.add(0, 8, 3, "다른 위치에 저장…");
         menu.add(0, 4, 3, "다른 앱으로 열기");
         menu.add(0, 5, 4, "공유");
         return true;
@@ -505,6 +512,11 @@ public class ViewerActivity extends Activity {
     public boolean onPrepareOptionsMenu(Menu menu) {
         MenuItem z = menu.findItem(2);
         if (z != null) z.setVisible(kind != Converter.Kind.PDF);
+        boolean canSave = temp != null && doc != null;
+        MenuItem sv = menu.findItem(7);
+        if (sv != null) sv.setVisible(canSave);
+        MenuItem sa = menu.findItem(8);
+        if (sa != null) sa.setVisible(canSave);
         MenuItem r = menu.findItem(6);
         if (r != null) {
             r.setVisible(isFlowing());
@@ -530,9 +542,154 @@ public class ViewerActivity extends Activity {
                 return true;
             }
             case 3: if (web != null) { web.pageUp(true); web.scrollTo(0, 0); } return true;
+            case 7: saveToDownloads(); return true;
+            case 8: saveAs(); return true;
             case 4: external(Intent.ACTION_VIEW); return true;
             case 5: external(Intent.ACTION_SEND); return true;
             default: return super.onOptionsItemSelected(item);
+        }
+    }
+
+    // ---------- saving a copy ----------
+
+    private static final int REQ_SAVE_AS = 11;
+    private File pendingSaveSource;
+
+    /** File name for the saved copy: no path separators or control characters, sensible length, real extension. */
+    private String saveName() {
+        String n = name == null ? "" : name.replaceAll("[\\p{Cc}\\p{Cf}/\\\\:*?\"<>|]", "_").trim();
+        while (n.startsWith(".")) n = n.substring(1);
+        if (n.isEmpty()) n = "문서";
+        String cur = Util.ext(n), ext = extFor(kind);
+        if (!cur.matches("[a-z0-9]{1,5}") && !ext.isEmpty()) {
+            n = n + "." + ext;
+            cur = ext;
+        }
+        if (n.length() > 120) n = n.substring(0, 119 - cur.length()) + "." + cur;
+        return n;
+    }
+
+    private static String extFor(Converter.Kind k) {
+        switch (k) {
+            case PDF: return "pdf";
+            case DOCX: return "docx";
+            case XLSX: return "xlsx";
+            case PPTX: return "pptx";
+            case HWPX: return "hwpx";
+            case HWP: return "hwp";
+            case DOC: return "doc";
+            case XLS: return "xls";
+            case PPT: return "ppt";
+            default: return "";
+        }
+    }
+
+    private static String mimeFor(Converter.Kind k) {
+        switch (k) {
+            case PDF: return "application/pdf";
+            case DOCX: return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case XLSX: return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case PPTX: return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            case DOC: return "application/msword";
+            case XLS: return "application/vnd.ms-excel";
+            case PPT: return "application/vnd.ms-powerpoint";
+            // HWP types are unknown to Android; octet-stream keeps the .hwp/.hwpx extension intact
+            default: return "application/octet-stream";
+        }
+    }
+
+    /** Saves the exact original file into the public Download folder (no storage permission needed). */
+    private void saveToDownloads() {
+        final File src = temp;
+        if (src == null || doc == null) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            saveAs(); // Android 8–9: let the user pick the folder (still no storage permission)
+            return;
+        }
+        final String fileName = saveName();
+        final String mime = mimeFor(kind);
+        background(() -> {
+            Uri item = null;
+            String err = null;
+            try {
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                v.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                item = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                if (item == null) throw new java.io.IOException("insert failed");
+                copyFile(src, item);
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                getContentResolver().update(item, done, null, null);
+            } catch (Exception e) {
+                err = e.getClass().getSimpleName();
+                if (item != null) {
+                    try {
+                        getContentResolver().delete(item, null, null);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            final String failed = err;
+            main.post(() -> {
+                if (destroyed) return;
+                if (failed == null) Toast.makeText(this, "다운로드 폴더에 저장했습니다\n" + fileName, Toast.LENGTH_LONG).show();
+                else Toast.makeText(this, "저장하지 못했습니다. '다른 위치에 저장'을 이용해 주세요.", Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
+    /** Lets the user choose where to save via the system file picker. */
+    private void saveAs() {
+        if (temp == null || doc == null) return;
+        pendingSaveSource = temp;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType(mimeFor(kind));
+        i.putExtra(Intent.EXTRA_TITLE, saveName());
+        try {
+            startActivityForResult(i, REQ_SAVE_AS);
+        } catch (Exception e) {
+            pendingSaveSource = null;
+            Toast.makeText(this, "저장할 위치를 고를 수 없습니다.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_SAVE_AS) return;
+        final File src = pendingSaveSource;
+        pendingSaveSource = null;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null || src == null) return;
+        final Uri dest = data.getData();
+        background(() -> {
+            boolean ok;
+            try {
+                copyFile(src, dest);
+                ok = true;
+            } catch (Exception e) {
+                ok = false;
+                try {
+                    android.provider.DocumentsContract.deleteDocument(getContentResolver(), dest);
+                } catch (Exception ignored) {
+                }
+            }
+            final boolean saved = ok;
+            main.post(() -> {
+                if (!destroyed) Toast.makeText(this, saved ? "저장했습니다." : "저장하지 못했습니다.", Toast.LENGTH_SHORT).show();
+            });
+        });
+    }
+
+    private void copyFile(File src, Uri dest) throws Exception {
+        try (InputStream in = new FileInputStream(src); OutputStream out = getContentResolver().openOutputStream(dest, "w")) {
+            if (out == null) throw new java.io.IOException("no output");
+            byte[] buf = new byte[64 * 1024];
+            int r;
+            while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
         }
     }
 
