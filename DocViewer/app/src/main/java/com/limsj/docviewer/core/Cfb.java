@@ -14,7 +14,7 @@ import java.util.Set;
 /** Read-only OLE2 / Compound File Binary reader (used by HWP, DOC, XLS, PPT). */
 public final class Cfb implements Closeable {
     private static final int END = -2;
-    public static final long MAX_STREAM = 256L * 1024 * 1024;
+    public static final long MAX_STREAM = 128L * 1024 * 1024;
 
     private final RandomAccessFile raf;
     private final int sectorSize, miniSectorSize, miniCutoff;

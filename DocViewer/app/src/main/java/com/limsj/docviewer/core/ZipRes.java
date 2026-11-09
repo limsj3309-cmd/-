@@ -13,7 +13,7 @@ import java.util.zip.ZipFile;
 
 /** Zip package access shared by DOCX/XLSX/PPTX/HWPX. */
 public final class ZipRes implements Closeable, Doc.Res {
-    public static final long MAX_PART = 200L * 1024 * 1024;
+    public static final long MAX_PART = 100L * 1024 * 1024;
     public final ZipFile zip;
     private final Map<String, String> lower = new HashMap<>();
 

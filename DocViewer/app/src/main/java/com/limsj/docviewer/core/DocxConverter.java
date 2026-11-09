@@ -284,6 +284,12 @@ public final class DocxConverter {
         sb.append("</").append(tag).append('>');
     }
 
+    /** Only plain web, mail and phone links become clickable; javascript:, file:, intent: etc. stay text. */
+    static boolean safeLink(String url) {
+        String u = url.trim().toLowerCase(Locale.ROOT);
+        return u.startsWith("http://") || u.startsWith("https://") || u.startsWith("mailto:") || u.startsWith("tel:");
+    }
+
     private static String align(String jc) {
         if (jc == null) return null;
         switch (jc) {
@@ -301,7 +307,7 @@ public final class DocxConverter {
                 case "hyperlink": {
                     String id = n.rel("id");
                     String target = id != null ? rels.get(id) : null;
-                    if (target != null && target.startsWith("ext:") && target.length() > 4) {
+                    if (target != null && target.startsWith("ext:") && safeLink(target.substring(4))) {
                         sb.append("<a href=\"").append(Util.esc(target.substring(4))).append("\">");
                         inlines(n);
                         sb.append("</a>");

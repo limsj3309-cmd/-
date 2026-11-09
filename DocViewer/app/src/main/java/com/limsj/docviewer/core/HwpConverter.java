@@ -21,7 +21,7 @@ public final class HwpConverter {
     private static final int SHAPE_PICTURE = TAG_BEGIN + 69;
     private static final int DISTRIBUTE_DOC_DATA = TAG_BEGIN + 12;
 
-    private static final long LIMIT = 256L * 1024 * 1024;
+    private static final long LIMIT = 128L * 1024 * 1024;
 
     private final Cfb cfb;
     private boolean compressed;
@@ -77,6 +77,7 @@ public final class HwpConverter {
         List<Rec> stack = new ArrayList<>();
         stack.add(root);
         for (Rec r : flat) {
+            if (r.level > 64) continue; // real documents nest a few levels; deeper is hostile
             while (stack.size() > 1 && stack.get(stack.size() - 1).level >= r.level) stack.remove(stack.size() - 1);
             stack.get(stack.size() - 1).kids.add(r);
             stack.add(r);

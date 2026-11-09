@@ -29,16 +29,42 @@ public final class Html {
     /** @param viewportWidth fixed layout width in CSS px (fitted to the screen and zoomable), or 0 for device width */
     public static String page(String bodyClass, String extraCss, String body, String script, int viewportWidth) {
         StringBuilder sb = new StringBuilder(body.length() + 2048);
+        String nonce = nonce();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
+                .append("<meta http-equiv=\"Content-Security-Policy\" content=\"").append(csp(nonce)).append("\">")
                 .append("<meta name=\"viewport\" content=\"").append(viewport(viewportWidth)).append("\">")
                 .append("<style>").append(BASE_CSS);
         if (extraCss != null) sb.append(extraCss);
         sb.append("</style></head><body class=\"").append(bodyClass).append("\">")
                 .append(body);
-        if (script != null) sb.append("<script>").append(script).append("</script>");
+        if (script != null) sb.append("<script nonce=\"").append(nonce).append("\">").append(script).append("</script>");
         sb.append("</body></html>");
         return sb.toString();
     }
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    private static String nonce() {
+        byte[] b = new byte[16];
+        RANDOM.nextBytes(b);
+        StringBuilder sb = new StringBuilder(32);
+        for (byte x : b) sb.append(Character.forDigit((x >> 4) & 15, 16)).append(Character.forDigit(x & 15, 16));
+        return sb.toString();
+    }
+
+    /**
+     * Content-Security-Policy for every page. Document text is escaped when converted; this is the
+     * second line of defence: only the converter's own script (carrying the per-page nonce) may run,
+     * images only come from the local resource host, and nothing can be fetched, posted or framed.
+     */
+    private static String csp(String nonce) {
+        return "default-src 'none'; img-src " + ORIGIN + "; style-src 'unsafe-inline'; script-src 'nonce-" + nonce
+                + "'; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none';"
+                + " worker-src 'none'; form-action 'none'; base-uri 'none'";
+    }
+
+    /** Origin the viewer serves pages and resources from (intercepted locally, never on the network). */
+    public static final String ORIGIN = "https://doc.local";
 
     private static String viewport(int w) {
         if (w <= 0) return DEVICE_VIEWPORT;

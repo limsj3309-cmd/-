@@ -84,14 +84,16 @@ public final class Sheets {
 
     private static final String JS =
             "function sel(i){var s=document.querySelectorAll('.sh'),b=document.querySelectorAll('.tabs button');"
-            + "for(var k=0;k<s.length;k++){s[k].className=k==i?'sh on':'sh';b[k].className=k==i?'on':'';}window.scrollTo(0,0);}";
+            + "for(var k=0;k<s.length;k++){s[k].className=k==i?'sh on':'sh';b[k].className=k==i?'on':'';}window.scrollTo(0,0);}"
+            // listeners instead of inline onclick: the page's CSP only allows the nonce'd script
+            + "var tb=document.querySelectorAll('.tabs button');for(var j=0;j<tb.length;j++)(function(j){tb[j].addEventListener('click',function(){sel(j);});})(j);";
 
     public static String render(List<Sheet> sheets) {
         StringBuilder sb = new StringBuilder(65536);
         if (sheets.isEmpty()) return Html.message("빈 통합 문서", "표시할 시트가 없습니다.");
         sb.append("<div class=\"tabs\">");
         for (int i = 0; i < sheets.size(); i++) {
-            sb.append("<button onclick=\"sel(").append(i).append(")\"").append(i == 0 ? " class=\"on\"" : "").append('>');
+            sb.append("<button type=\"button\"").append(i == 0 ? " class=\"on\"" : "").append('>');
             Util.escTo(sb, sheets.get(i).name);
             sb.append("</button>");
         }

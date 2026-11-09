@@ -15,6 +15,9 @@ import java.util.List;
  */
 public final class XNode {
     public static final String TEXT = "#t";
+    /** Upper bound on elements per part, so hostile files cannot exhaust memory. */
+    private static final int MAX_NODES = 3_000_000;
+    private static final int MAX_DEPTH = 400;
     private static final ArrayList<XNode> NONE = new ArrayList<>(0);
 
     public final String name;
@@ -31,7 +34,7 @@ public final class XNode {
         XmlPullParserFactory f = XmlPullParserFactory.newInstance();
         f.setNamespaceAware(true);
         XmlPullParser p = f.newPullParser();
-        p.setInput(in, null);
+        p.setInput(new SafeXmlStream(in), null);
         return p;
     }
 
@@ -39,9 +42,11 @@ public final class XNode {
         XmlPullParser p = newParser(in);
         XNode root = new XNode("#root");
         XNode cur = root;
+        int nodes = 0, depth = 0;
         int ev = p.getEventType();
         while (ev != XmlPullParser.END_DOCUMENT) {
             if (ev == XmlPullParser.START_TAG) {
+                if (++nodes > MAX_NODES || ++depth > MAX_DEPTH) throw new java.io.IOException("XML too large or too deep");
                 XNode n = new XNode(p.getName());
                 int ac = p.getAttributeCount();
                 if (ac > 0) {
@@ -55,6 +60,7 @@ public final class XNode {
                 cur.add(n);
                 cur = n;
             } else if (ev == XmlPullParser.END_TAG) {
+                depth--;
                 XNode done = cur;
                 cur = cur.parent != null ? cur.parent : root;
                 if ("AlternateContent".equals(done.name)) resolveAlternate(cur, done);

@@ -56,8 +56,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ViewerActivity extends Activity {
-    private static final String HOST = "doc.local";
-    private static final String BASE = "https://" + HOST + "/";
+    private static final String HOST = Uri.parse(Html.ORIGIN).getHost();
+    private static final String BASE = Html.ORIGIN + "/";
+    private static final long MAX_FILE = 500L * 1024 * 1024;
     private static final int[] ZOOMS = {75, 90, 100, 115, 130, 150, 175, 200};
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -137,15 +138,27 @@ public class ViewerActivity extends Activity {
 
     private void handleIntent(Intent intent) {
         uri = null;
-        if (intent != null) {
-            uri = intent.getData();
-            if (uri == null && Intent.ACTION_SEND.equals(intent.getAction())) {
-                Parcelable p = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-                if (p instanceof Uri) uri = (Uri) p;
+        try {
+            if (intent != null) {
+                uri = intent.getData();
+                if (uri == null && Intent.ACTION_SEND.equals(intent.getAction())) {
+                    Parcelable p = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                    if (p instanceof Uri) uri = (Uri) p;
+                }
             }
+        } catch (RuntimeException e) {
+            // malformed extras from another app (BadParcelableException etc.)
+            uri = null;
         }
         if (uri == null) {
             showError("파일 없음", "열 문서가 지정되지 않았습니다.");
+            return;
+        }
+        // Only content:// documents handed over by the system or another app. file:// would let any
+        // app make this viewer read (and offer to share) files from its own private storage.
+        if (!"content".equals(uri.getScheme())) {
+            uri = null;
+            showError("열 수 없는 문서", "파일 관리자나 '문서 열기' 버튼으로 다시 열어 주세요.");
             return;
         }
         setLoading(true, "문서를 여는 중입니다…");
@@ -229,13 +242,17 @@ public class ViewerActivity extends Activity {
         File dir = new File(getCacheDir(), "open");
         if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("cache");
         String ext = Util.ext(n);
+        if (!ext.matches("[a-z0-9]{1,8}")) ext = "";
         File f = new File(dir, System.currentTimeMillis() + "_" + Math.abs(u.hashCode()) + (ext.isEmpty() ? "" : "." + ext));
         try (InputStream in = getContentResolver().openInputStream(u); OutputStream out = new FileOutputStream(f)) {
             if (in == null) throw new java.io.FileNotFoundException();
             byte[] buf = new byte[64 * 1024];
             int r;
+            long total = 0;
             while ((r = in.read(buf)) > 0) {
                 if (destroyed) throw new InterruptedException();
+                total += r;
+                if (total > MAX_FILE) throw new Doc.UserError("파일이 너무 큽니다. (최대 500MB)");
                 out.write(buf, 0, r);
             }
         }
@@ -286,6 +303,10 @@ public class ViewerActivity extends Activity {
         s.setSaveFormData(false);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setSupportMultipleWindows(false);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
+        s.setSafeBrowsingEnabled(false); // all content is local; don't send anything to a URL-check service
+        WebView.setWebContentsDebuggingEnabled(false);
         web.setBackgroundColor(Color.rgb(232, 233, 237));
         web.setWebViewClient(new Client());
         web.setFindListener((active, count, done) -> {
@@ -302,14 +323,12 @@ public class ViewerActivity extends Activity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
             Uri u = req.getUrl();
-            if (HOST.equals(u.getHost())) return false;
+            // Inside the viewer only our own page may load; document content cannot navigate elsewhere.
+            if (HOST.equals(u.getHost())) return !(BASE + "index.html").equals(u.toString());
+            // A link in a document leaves the app only when the user tapped it and confirmed.
             String sch = u.getScheme();
-            if ("http".equals(sch) || "https".equals(sch) || "mailto".equals(sch) || "tel".equals(sch)) {
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, u));
-                } catch (Exception ignored) {
-                }
-            }
+            boolean allowed = "http".equals(sch) || "https".equals(sch) || "mailto".equals(sch) || "tel".equals(sch);
+            if (allowed && req.hasGesture() && !destroyed) confirmExternal(u);
             return true;
         }
 
@@ -366,6 +385,24 @@ public class ViewerActivity extends Activity {
 
     private static WebResourceResponse empty(int code) {
         return new WebResourceResponse("text/plain", "utf-8", code, "Not Found", new HashMap<>(), new ByteArrayInputStream(new byte[0]));
+    }
+
+    private void confirmExternal(Uri u) {
+        String shown = u.toString();
+        if (shown.length() > 300) shown = shown.substring(0, 300) + "…";
+        new AlertDialog.Builder(this)
+                .setTitle("외부 링크 열기")
+                .setMessage("문서에 들어 있는 링크입니다. 신뢰할 수 있는 주소인지 확인하세요.\n\n" + shown)
+                .setNegativeButton("취소", null)
+                .setPositiveButton("열기", (d, w) -> {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_VIEW, u);
+                        i.addCategory(Intent.CATEGORY_BROWSABLE);
+                        i.setSelector(null);
+                        startActivity(i);
+                    } catch (Exception ignored) {
+                    }
+                }).show();
     }
 
     // ---------- find bar ----------

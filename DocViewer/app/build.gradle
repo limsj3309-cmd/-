@@ -10,16 +10,26 @@ android {
         applicationId 'com.limsj.docviewer'
         minSdk 26
         targetSdk 34
-        versionCode 2
-        versionName '1.1'
+        versionCode 3
+        versionName '1.2'
     }
+
+    // Release signing comes from keystore.properties (git-ignored) or environment variables;
+    // without them the release APK is built unsigned instead of with a published key.
+    def signingProps = new Properties()
+    def signingFile = rootProject.file('keystore.properties')
+    if (signingFile.exists()) signingFile.withInputStream { signingProps.load(it) }
+    def signingValue = { String key, String env -> signingProps.getProperty(key) ?: System.getenv(env) }
+    def hasSigning = signingValue('storeFile', 'DOCVIEWER_STORE_FILE') != null
 
     signingConfigs {
         release {
-            storeFile file('../keystore/docviewer.jks')
-            storePassword 'docviewer'
-            keyAlias 'docviewer'
-            keyPassword 'docviewer'
+            if (hasSigning) {
+                storeFile rootProject.file(signingValue('storeFile', 'DOCVIEWER_STORE_FILE'))
+                storePassword signingValue('storePassword', 'DOCVIEWER_STORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'DOCVIEWER_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'DOCVIEWER_KEY_PASSWORD')
+            }
         }
     }
 
@@ -28,7 +38,7 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (hasSigning) signingConfig signingConfigs.release
         }
     }
 
