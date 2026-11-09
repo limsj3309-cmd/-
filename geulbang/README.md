@@ -9,7 +9,7 @@
 | --- | --- |
 | [**HyunseoGeulbang-Setup-v1.1.2.exe**](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/HyunseoGeulbang-Setup-v1.1.2.exe) | Windows 설치 파일 (약 240KB) |
 | [HyunseoGeulbang-v1.1.2.zip](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/HyunseoGeulbang-v1.1.2.zip) | 설치 파일 + 설치 없이 쓰는 `geulbang.html` + 설명서 묶음 |
-| [geulbang.html](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/geulbang.html) | 설치 없이 쓰는 버전만 (브라우저로 열기) |
+| [geulbang.html](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/geulbang.html) | 설치 없이 쓰는 버전만. 누르면 코드가 화면에 보이므로 **오른쪽 클릭 → "다른 이름으로 링크 저장"** 으로 받거나 ZIP을 받으세요 |
 | [SHA256SUMS.txt](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/SHA256SUMS.txt) | 내려받은 파일 확인용 체크섬 |
 
 링크를 누르면 바로 내려받아집니다. 브라우저가 "흔히 내려받지 않는 파일"이라고 경고하면 **[계속]/[유지]**를 고르세요
