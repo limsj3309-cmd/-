@@ -258,13 +258,16 @@ def test_save_keeps_password(app, win, tmp_path, monkeypatch):
     assert saved.page_count == 2
     # 권한 제한(인쇄만 허용)도 유지된다
     assert saved.permissions == orig_perms
+    saved.close()  # 윈도우는 열려 있는 파일을 교체할 수 없다
     assert len(win.questions) == 1  # 한 번만 물어봄
     # 저장 후에도 계속 같은 문서로 편집 가능
     win.thumbs.select_rows([0])
     win.rotate(90)
     assert win.save()
     assert len(win.questions) == 1
-    assert pymupdf.open(path).needs_pass
+    again = pymupdf.open(path)
+    assert again.needs_pass
+    again.close()
 
 
 def test_save_without_password_when_user_declines(app, win, tmp_path, monkeypatch):

@@ -119,7 +119,10 @@ def write_file_atomic(data: bytes, path: str | os.PathLike) -> None:
             os.unlink(tmp)
         except OSError:
             pass
-        raise PdfToolError(f"파일을 저장할 수 없습니다.\n{path}\n({exc})") from exc
+        hint = ""
+        if isinstance(exc, PermissionError):
+            hint = "\n\n다른 프로그램(PDF 뷰어 등)에서 이 파일을 열고 있다면 닫은 뒤 다시 시도하세요."
+        raise PdfToolError(f"파일을 저장할 수 없습니다.\n{path}\n({exc}){hint}") from exc
 
 
 def unique_path(path: str | os.PathLike) -> Path:
