@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QPalette, QPixmap
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from ..core import PageRef
-from .render import page_size, render_page
+from .render import capped_scale, page_size, render_page
 
 ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0]
 PAGE_GAP = 12
@@ -147,9 +147,19 @@ class PageViewer(QScrollArea):
         self.zoomChanged.emit(zoom)
         self._render_timer.start()
 
+    def _page_zoom(self, ref: PageRef) -> float:
+        """이 페이지에 실제로 적용할 배율.
+
+        악의적으로 거대한 페이지는 확대해도 픽셀 수 상한(MAX_RENDER_PIXELS)을 넘지 않게
+        배율을 낮춘다. 화면 크기 자체를 제한해야 Qt가 거대한 이미지를 만들지 않는다.
+        """
+        dpr = self.devicePixelRatioF()
+        return capped_scale(self._doc, ref, self._zoom * dpr) / dpr
+
     def _label_size(self, ref: PageRef) -> QSize:
         size = page_size(self._doc, ref)
-        return QSize(max(1, round(size.width() * self._zoom)), max(1, round(size.height() * self._zoom)))
+        z = self._page_zoom(ref)
+        return QSize(max(1, round(size.width() * z)), max(1, round(size.height() * z)))
 
     def _apply_sizes(self) -> None:
         for label, ref in zip(self._labels, self._pages):
@@ -176,7 +186,7 @@ class PageViewer(QScrollArea):
             geo = label.geometry()
             if geo.intersects(vis.adjusted(0, -vis.height() // 2, 0, vis.height() // 2)):
                 if label.rendered_zoom is None or abs(label.rendered_zoom - self._zoom) > 1e-6:
-                    pix: QPixmap = render_page(self._doc, ref, self._zoom * dpr)
+                    pix: QPixmap = render_page(self._doc, ref, self._page_zoom(ref) * dpr)
                     pix.setDevicePixelRatio(dpr)
                     label.setScaledContents(False)
                     label.setPixmap(pix)

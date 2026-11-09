@@ -10,6 +10,7 @@ from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
+    QPushButton,
     QFileDialog,
     QInputDialog,
     QLabel,
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from .. import APP_NAME, __version__, core
+from .. import APP_NAME, __version__, core, security
 from ..core import PageRef
 from . import dialogs
 from .thumbnails import ThumbnailList
@@ -77,7 +78,10 @@ class MainWindow(QMainWindow):
         self.pages: list[PageRef] = []
         self._undo: list[list[PageRef]] = []
         self._redo: list[list[PageRef]] = []
-        self._encrypted = False
+        self._password: Optional[str] = None
+        self._protection: Optional[security.Protection] = None
+        self._use_protection: Optional[bool] = None  # None = 아직 묻지 않음
+        self._risks: list[str] = []
         self._signed_warned = False
 
         self.thumbs = ThumbnailList()
@@ -150,6 +154,8 @@ class MainWindow(QMainWindow):
         self.a_flatten = A("드래그 방지", self.flatten, "Ctrl+Shift+F", "글자를 선택/복사할 수 없는 PDF로 변환")
         self.a_split = A("분할", self.split, "Ctrl+Shift+D", "PDF를 여러 파일로 나누기")
         self.a_merge = A("병합", self.merge, "Ctrl+Shift+M", "여러 PDF를 하나로 합치기")
+        self.a_sanitize = A("보안 정리 (위험 요소 제거)…", self.sanitize, None,
+                            "자바스크립트, 외부 프로그램 실행, 첨부 파일 등을 제거한 사본 저장")
 
         self.a_zoom_in = A("확대", self.viewer.zoom_in, [QKeySequence.StandardKey.ZoomIn, "Ctrl+="])
         self.a_zoom_out = A("축소", self.viewer.zoom_out, QKeySequence.StandardKey.ZoomOut)
@@ -199,6 +205,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_extract)
         m = mb.addMenu("도구(&T)")
         m.addActions([self.a_compress, self.a_flatten, self.a_split, self.a_merge])
+        m.addSeparator()
+        m.addAction(self.a_sanitize)
         m = mb.addMenu("보기(&V)")
         m.addActions([self.a_zoom_in, self.a_zoom_out, self.a_fit])
         m = mb.addMenu("도움말(&H)")
@@ -208,7 +216,14 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.lbl_page = QLabel()
         self.lbl_info = QLabel()
+        self.btn_risk = QPushButton()
+        self.btn_risk.setFlat(True)
+        self.btn_risk.setStyleSheet("color: #c62828; font-weight: bold;")
+        self.btn_risk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_risk.clicked.connect(self._show_risks)
+        self.btn_risk.hide()
         sb.addWidget(self.lbl_page)
+        sb.addPermanentWidget(self.btn_risk)
         sb.addPermanentWidget(self.lbl_info)
 
     def _thumb_menu(self, pos):
@@ -238,6 +253,7 @@ class MainWindow(QMainWindow):
         has = self.doc is not None
         sel = bool(self.thumbs.selectedItems()) if has else False
         for a in (self.a_save_as, self.a_close, self.a_compress, self.a_flatten, self.a_split,
+                  self.a_sanitize,
                   self.a_zoom_in, self.a_zoom_out, self.a_fit, self.a_select_all):
             a.setEnabled(has)
         self.a_save.setEnabled(has and self.modified)
@@ -260,6 +276,8 @@ class MainWindow(QMainWindow):
         info = []
         if self.path and self.path.exists():
             info.append(f"파일 크기 {core.human_size(self.path.stat().st_size)}")
+        if self._protection is not None:
+            info.append("🔒 암호 PDF" if self._protection.user_pw else "🔒 권한 제한 PDF")
         if self.modified:
             info.append("수정됨 (저장 안 됨)")
         self.lbl_info.setText("   |   ".join(info) + "  ")
@@ -278,13 +296,13 @@ class MainWindow(QMainWindow):
         pw, ok = QInputDialog.getText(self, "암호 입력", msg, QLineEdit.EchoMode.Password)
         return pw if ok else None
 
-    def _open_with_password(self, path: Path) -> Optional[pymupdf.Document]:
-        """암호가 있으면 물어보면서 연다. 실패/취소 시 None."""
+    def _open_with_password(self, path: Path) -> Optional[tuple[pymupdf.Document, Optional[str]]]:
+        """암호가 있으면 물어보면서 연다. 성공 시 (문서, 입력한 암호), 실패/취소 시 None."""
         password = None
         retry = False
         while True:
             try:
-                return core.open_pdf(path, password)
+                return core.open_pdf(path, password), password
             except core.PasswordRequired:
                 password = self._ask_password(path.name, retry)
                 if password is None:
@@ -305,20 +323,31 @@ class MainWindow(QMainWindow):
         path = Path(path)
         if not self._confirm_discard():
             return False
-        doc = self._open_with_password(path)
-        if doc is None:
+        opened = self._open_with_password(path)
+        if opened is None:
             return False
+        doc, password = opened
         self._remember_dir(path)
-        self._load(doc, path)
+        self._load(doc, path, password)
         return True
 
-    def _load(self, doc: pymupdf.Document, path: Optional[Path]):
+    def _load(self, doc: pymupdf.Document, path: Optional[Path],
+              password: Optional[str] = None, use_protection: Optional[bool] = None):
         if self.doc is not None:
             self.doc.close()
         self.doc = doc
         self.path = path
-        self._encrypted = bool((doc.metadata or {}).get("encryption"))
+        self._password = password
+        self._protection = security.detect_protection(doc, password)
+        self._use_protection = use_protection if self._protection is not None else None
         self._signed_warned = False
+        self._risks = security.find_active_content(doc)
+        if self._risks:
+            self.btn_risk.setText(f"⚠ 위험 요소 {len(self._risks)}종 포함")
+            self.btn_risk.setToolTip("\n".join(self._risks) + "\n\n클릭하면 자세히 보고 제거할 수 있습니다.")
+            self.btn_risk.show()
+        else:
+            self.btn_risk.hide()
         self.pages = core.initial_pages(doc)
         self._undo.clear()
         self._redo.clear()
@@ -338,6 +367,11 @@ class MainWindow(QMainWindow):
             self.doc.close()
         self.doc = None
         self.path = None
+        self._password = None
+        self._protection = None
+        self._use_protection = None
+        self._risks = []
+        self.btn_risk.hide()
         self.pages = []
         self._undo.clear()
         self._redo.clear()
@@ -362,6 +396,23 @@ class MainWindow(QMainWindow):
             return self.save()
         return ans == QMessageBox.StandardButton.Discard
 
+    def _output_protection(self) -> Optional[security.Protection]:
+        """결과 파일에 적용할 암호. 원본이 암호 PDF면 처음 한 번만 물어본다."""
+        if self._protection is None:
+            return None
+        if self._use_protection is None:
+            kind = "열기 암호" if self._protection.user_pw else "권한 제한(인쇄/복사 등)"
+            ans = QMessageBox.question(
+                self, "암호 유지",
+                f"원본 PDF에 {kind}가 걸려 있습니다.\n"
+                "새로 저장하는 파일에도 같은 암호/권한을 적용할까요? (권장)\n\n"
+                "[아니오]를 누르면 암호 없이 저장됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            self._use_protection = ans == QMessageBox.StandardButton.Yes
+        return self._protection if self._use_protection else None
+
     def _current_bytes(self) -> bytes:
         """편집 내용이 반영된 현재 문서의 PDF 바이트."""
         if not self.modified:
@@ -372,16 +423,18 @@ class MainWindow(QMainWindow):
         return data
 
     def _write(self, path: Path) -> bool:
+        prot = self._output_protection()
         try:
-            data = self._current_bytes()
+            data = security.protect(self._current_bytes(), prot)
             core.write_file_atomic(data, path)
         except core.PdfToolError as exc:
             QMessageBox.warning(self, "저장 실패", str(exc))
             return False
         cur = self.viewer.current_page()
-        new_doc = core.open_pdf_bytes(data, name=path.name)
+        password = self._password if prot is not None else None
+        new_doc = core.open_pdf_bytes(data, password, name=path.name)
         self._remember_dir(path)
-        self._load(new_doc, path)
+        self._load(new_doc, path, password, self._use_protection)
         self.viewer.go_to_page(max(0, cur))
         self.statusBar().showMessage(f"저장했습니다: {path}", 5000)
         return True
@@ -393,8 +446,6 @@ class MainWindow(QMainWindow):
             return self.save_as()
         if not self.modified:
             return True
-        if self._encrypted:
-            QMessageBox.information(self, "저장", "암호가 걸린 파일이었습니다. 저장된 파일에는 암호가 없습니다.")
         return self._write(self.path)
 
     def save_as(self) -> bool:
@@ -512,9 +563,10 @@ class MainWindow(QMainWindow):
         path = self._ask_save_path("선택한 페이지 저장", "추출")
         if path is None:
             return
+        prot = self._output_protection()
         doc = core.build_document(self.doc, [self.pages[r] for r in rows])
         try:
-            core.write_file_atomic(core.to_bytes(doc), path)
+            core.write_file_atomic(security.protect(core.to_bytes(doc), prot), path)
         except core.PdfToolError as exc:
             QMessageBox.warning(self, "저장 실패", str(exc))
             return
@@ -537,13 +589,14 @@ class MainWindow(QMainWindow):
         path = self._ask_save_path("압축한 PDF 저장", f"압축{preset.label}")
         if path is None:
             return
+        prot = self._output_protection()
         src = self._current_bytes()
         before = self.path.stat().st_size if (self.path and not self.modified and self.path.exists()) else len(src)
 
         def job(progress):
             doc = core.open_pdf_bytes(src)
             try:
-                return core.compress_document(doc, level, progress)
+                return security.protect(core.compress_document(doc, level, progress), prot)
             finally:
                 doc.close()
 
@@ -584,13 +637,14 @@ class MainWindow(QMainWindow):
         path = self._ask_save_path("드래그 방지 PDF 저장", "드래그방지")
         if path is None:
             return
+        prot = self._output_protection()
         src = self._current_bytes()
         before = self.path.stat().st_size if (self.path and not self.modified and self.path.exists()) else len(src)
 
         def job(progress):
             doc = core.open_pdf_bytes(src)
             try:
-                return core.flatten_document(doc, key, progress)
+                return security.protect(core.flatten_document(doc, key, progress), prot)
             finally:
                 doc.close()
 
@@ -627,6 +681,7 @@ class MainWindow(QMainWindow):
         )
         if not dlg.exec():
             return
+        prot = self._output_protection()
         src = self._current_bytes()
         out_dir = Path(dlg.out_dir())
         base = dlg.base_name()
@@ -638,7 +693,7 @@ class MainWindow(QMainWindow):
             def job(progress):
                 doc = core.open_pdf_bytes(src)
                 try:
-                    core.write_file_atomic(core.extract_pages(doc, groups[0]), path)
+                    core.write_file_atomic(security.protect(core.extract_pages(doc, groups[0]), prot), path)
                     return [path]
                 finally:
                     doc.close()
@@ -646,7 +701,7 @@ class MainWindow(QMainWindow):
             def job(progress):
                 doc = core.open_pdf_bytes(src)
                 try:
-                    return core.split_document(doc, groups, out_dir, base, progress)
+                    return core.split_document(doc, groups, out_dir, base, progress, prot)
                 finally:
                     doc.close()
 
@@ -677,17 +732,36 @@ class MainWindow(QMainWindow):
 
         # 암호 확인은 UI 스레드에서 먼저 (암호 입력 창을 띄워야 하므로)
         docs: list[tuple[str, pymupdf.Document]] = []
+        protected: list[tuple[str, security.Protection]] = []
         try:
             for p in paths:
-                doc = self._open_with_password(p)
-                if doc is None:
+                opened = self._open_with_password(p)
+                if opened is None:
                     return
+                doc, password = opened
                 docs.append((p.stem, doc))
+                prot = security.detect_protection(doc, password)
+                if prot is not None:
+                    protected.append((p.name, prot))
             # 작업 스레드용으로 바이트로 넘긴다
             payload = [(name, d.tobytes()) for name, d in docs]
         finally:
             for _, d in docs:
                 d.close()
+
+        merge_prot = None
+        if protected:
+            first_name, first_prot = protected[0]
+            ans = QMessageBox.question(
+                self, "암호 유지",
+                f"병합할 파일 중 암호/권한 제한이 걸린 파일이 있습니다 ({first_name} 등).\n"
+                f"병합한 파일에 '{first_name}'의 암호/권한을 적용할까요? (권장)\n\n"
+                "[아니오]를 누르면 암호 없이 저장됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if ans == QMessageBox.StandardButton.Yes:
+                merge_prot = first_prot
 
         out_default = core.unique_path(paths[0].parent / f"{paths[0].stem}_병합.pdf")
         name, _ = QFileDialog.getSaveFileName(self, "병합한 PDF 저장", str(out_default), PDF_FILTER)
@@ -701,21 +775,81 @@ class MainWindow(QMainWindow):
             opened = [(n, core.open_pdf_bytes(b, name=n)) for n, b in payload]
             try:
                 data = core.merge_documents(opened, keep, progress)
+                pages = sum(d.page_count for _, d in opened)
             finally:
                 for _, d in opened:
                     d.close()
+            data = security.protect(data, merge_prot)
             core.write_file_atomic(data, out)
-            return data
+            return pages, data
 
-        ok, data = run_with_progress(self, f"{len(payload)}개 파일을 병합하는 중…", job)
+        ok, result = run_with_progress(self, f"{len(payload)}개 파일을 병합하는 중…", job)
         if not ok:
             return
+        pages, data = result
         self._remember_dir(out)
-        pages = pymupdf.open(stream=data, filetype="pdf").page_count
         dialogs.show_result(
             self, "병합 완료",
             f"{len(payload)}개 파일을 합쳤습니다. (총 {pages}페이지, {core.human_size(len(data))})\n\n{out}",
             out, out.parent, self._open_result,
+        )
+
+    def _show_risks(self):
+        if not self._risks:
+            return
+        ans = QMessageBox.warning(
+            self, "위험 요소",
+            "이 PDF에는 다음 요소가 들어 있습니다:\n\n· " + "\n· ".join(self._risks) +
+            "\n\n이 프로그램은 자바스크립트를 실행하거나 링크를 따라가지 않으므로 여기서 보는 것은 안전합니다.\n"
+            "다만 Acrobat 같은 다른 프로그램에서 열면 실행될 수 있습니다.\n\n"
+            "위험 요소를 제거한 사본을 저장할까요?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            self.sanitize()
+
+    def sanitize(self):
+        """위험 요소를 제거한 사본 저장."""
+        if self.doc is None:
+            return
+        path = self._ask_save_path("보안 정리한 PDF 저장", "보안정리")
+        if path is None:
+            return
+        prot = self._output_protection()
+        src = self._current_bytes()
+
+        def job(progress):
+            doc = core.open_pdf_bytes(src)
+            try:
+                before = security.find_active_content(doc)
+                data = security.sanitize_document(doc)
+                check = core.open_pdf_bytes(data)
+                try:
+                    after = security.find_active_content(check)
+                finally:
+                    check.close()
+                return before, after, security.protect(data, prot)
+            finally:
+                doc.close()
+
+        ok, result = run_with_progress(self, "위험 요소를 제거하는 중…", job, cancellable=False)
+        if not ok:
+            return
+        before, after, data = result
+        try:
+            core.write_file_atomic(data, path)
+        except core.PdfToolError as exc:
+            QMessageBox.warning(self, "저장 실패", str(exc))
+            return
+        self._remember_dir(path)
+        removed = "\n· ".join(before) if before else "(발견된 위험 요소 없음)"
+        remain = ("\n\n※ 다음 요소는 완전히 제거하지 못했습니다:\n· " + "\n· ".join(after)) if after else ""
+        dialogs.show_result(
+            self, "보안 정리 완료",
+            f"위험 요소를 제거한 사본을 저장했습니다.\n\n제거한 항목:\n· {removed}{remain}\n\n"
+            f"일반 웹 링크, 책갈피, 양식 입력값은 유지됩니다.\n\n{path}",
+            path, path.parent, self._open_result,
         )
 
     # ================================================================== 보기

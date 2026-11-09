@@ -31,7 +31,17 @@ def win(app, tmp_path, monkeypatch):
     monkeypatch.setattr(main_window.dialogs, "show_result", lambda *a, **k: results.append(a))
     for name in ("information", "warning", "about"):
         monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, **k: results.append(a)))
+    # 예/아니오 질문: 테스트에서 w.answer 로 답을 정한다 (기본: 예)
+    questions = []
+
+    def question(*a, **k):
+        questions.append(a)
+        return w.answer
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
     w = MainWindow()
+    w.answer = QMessageBox.StandardButton.Yes
+    w.questions = questions
     w.results = results
     w.show()
     yield w
@@ -199,6 +209,7 @@ def test_merge_flow_with_password(app, win, tmp_path, monkeypatch):
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
     win.merge()
     doc = pymupdf.open(out)
+    assert doc.needs_pass and doc.authenticate("pw")  # 암호 파일이 섞여 있으면 암호 유지
     assert doc.page_count == 5
     assert [t[1] for t in doc.get_toc()] == ["a", "b"]
 
@@ -210,3 +221,153 @@ def test_wrong_password_cancel(app, win, tmp_path, monkeypatch):
     monkeypatch.setattr(main_window.QInputDialog, "getText", staticmethod(lambda *a, **k: next(answers)))
     assert not win.open_file(p)
     assert win.doc is None
+
+
+# ---------------------------------------------------------------------------
+# 보안
+# ---------------------------------------------------------------------------
+def _encrypted(tmp_path, name="enc.pdf", user="pw", owner="owner", pages=3):
+    path = tmp_path / name
+    perms = pymupdf.PDF_PERM_PRINT
+    _text_pdf(pages, name[0]).save(
+        path, encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw=user, owner_pw=owner, permissions=perms
+    )
+    return path
+
+
+def _open_encrypted(win, path, monkeypatch, password="pw"):
+    monkeypatch.setattr(main_window.QInputDialog, "getText", staticmethod(lambda *a, **k: (password, True)))
+    assert win.open_file(path)
+
+
+def test_save_keeps_password(app, win, tmp_path, monkeypatch):
+    """암호 PDF를 편집 후 저장해도 암호가 사라지지 않는다 (이전 버전의 보안 문제)."""
+    path = _encrypted(tmp_path)
+    orig = pymupdf.open(path)
+    orig.authenticate("pw")
+    orig_perms = orig.permissions
+    orig.close()
+    _open_encrypted(win, path, monkeypatch)
+    win.thumbs.select_rows([0])
+    win.delete_pages()
+    assert win.save()
+    saved = pymupdf.open(path)
+    assert saved.needs_pass
+    assert not saved.authenticate("wrong")
+    assert saved.authenticate("pw")
+    assert saved.page_count == 2
+    # 권한 제한(인쇄만 허용)도 유지된다
+    assert saved.permissions == orig_perms
+    assert len(win.questions) == 1  # 한 번만 물어봄
+    # 저장 후에도 계속 같은 문서로 편집 가능
+    win.thumbs.select_rows([0])
+    win.rotate(90)
+    assert win.save()
+    assert len(win.questions) == 1
+    assert pymupdf.open(path).needs_pass
+
+
+def test_save_without_password_when_user_declines(app, win, tmp_path, monkeypatch):
+    path = _encrypted(tmp_path)
+    _open_encrypted(win, path, monkeypatch)
+    win.answer = QMessageBox.StandardButton.No
+    out = tmp_path / "plain.pdf"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    assert win.save_as()
+    assert not pymupdf.open(out).needs_pass
+
+
+@pytest.mark.parametrize("tool", ["compress", "flatten", "extract", "split"])
+def test_outputs_keep_password(app, win, tmp_path, monkeypatch, tool):
+    path = _encrypted(tmp_path)
+    _open_encrypted(win, path, monkeypatch)
+    out = tmp_path / "out.pdf"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    monkeypatch.setattr(dialogs.CompressDialog, "exec", lambda self: True)
+    monkeypatch.setattr(dialogs.FlattenDialog, "exec", lambda self: True)
+    # 텍스트 PDF는 압축해도 줄지 않을 수 있으므로 압축 결과 비교를 통과하도록 원본보다 작게 판단
+    if tool == "compress":
+        win.compress()
+        files = [out] if out.exists() else []
+    elif tool == "flatten":
+        win.flatten()
+        files = [out]
+    elif tool == "extract":
+        win.thumbs.select_rows([0, 1])
+        win.extract_selected()
+        files = [out]
+    else:
+        parts = tmp_path / "parts"
+        parts.mkdir()
+
+        def fake_exec(self):
+            self._dir.setText(str(parts))
+            self._r_single.setChecked(True)
+            self._on_accept()
+            return self.result()
+
+        monkeypatch.setattr(dialogs.SplitDialog, "exec", fake_exec)
+        win.split()
+        files = sorted(parts.iterdir())
+        assert len(files) == 3
+    for f in files:
+        d = pymupdf.open(f)
+        assert d.needs_pass, f
+        assert d.authenticate("pw")
+
+
+def test_merge_keeps_password(app, win, tmp_path, monkeypatch):
+    a = _make(tmp_path, "a.pdf", 1)
+    b = _encrypted(tmp_path, "b.pdf", pages=2)
+    out = tmp_path / "m.pdf"
+
+    def fake_exec(self):
+        self.list.clear()
+        self.list.add_paths([str(a), str(b)])
+        return True
+
+    monkeypatch.setattr(dialogs.MergeDialog, "exec", fake_exec)
+    monkeypatch.setattr(main_window.QInputDialog, "getText", staticmethod(lambda *a, **k: ("pw", True)))
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    win.merge()
+    d = pymupdf.open(out)
+    assert d.needs_pass and d.authenticate("pw") and d.page_count == 3
+    assert "3페이지" in win.results[-1][2]
+
+
+def test_risk_warning_and_sanitize(app, win, tmp_path, monkeypatch):
+    from .test_security import _malicious_pdf
+
+    path = tmp_path / "mal.pdf"
+    path.write_bytes(_malicious_pdf().tobytes())
+    win.open_file(path)
+    assert win._risks and not win.btn_risk.isHidden()
+    out = tmp_path / "clean.pdf"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    win.sanitize()
+    from pdftool import security
+
+    assert security.find_active_content(pymupdf.open(out)) == []
+    assert "보안 정리 완료" in win.results[-1][1]
+    win.open_file(out)
+    assert win.btn_risk.isHidden()
+
+
+def test_huge_page_render_is_capped(app, win, tmp_path):
+    """악의적으로 거대한 페이지를 크게 확대해도 메모리를 과도하게 쓰지 않는다."""
+    from pdftool.ui.render import MAX_RENDER_PIXELS
+
+    doc = pymupdf.open()
+    doc.new_page(width=14400, height=14400)
+    path = tmp_path / "huge.pdf"
+    doc.save(path)
+    win.open_file(path)
+    assert _wait_until(lambda: win.viewer._labels[0].rendered_zoom is not None)  # 첫 표시(폭 맞춤) 완료
+    win.viewer.set_zoom(5.0)
+    assert _wait_until(lambda: win.viewer._labels[0].rendered_zoom == 5.0)
+    label = win.viewer._labels[0]
+    pix = label.pixmap()
+    assert pix.width() * pix.height() <= MAX_RENDER_PIXELS * 1.01
+    # 화면 표시 크기도 제한된다 (Qt가 거대한 확대 이미지를 만들지 않도록)
+    assert label.width() * label.height() <= MAX_RENDER_PIXELS * 1.01
+    assert not label.hasScaledContents()

@@ -9,7 +9,7 @@ if not exist .venv (
 )
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-pip install -r requirements-build.txt || goto :error
+pip install --no-deps --require-hashes -r requirements-lock.txt || goto :error
 
 python -m pytest -q || goto :error
 python installer\make_icon.py installer\app.ico || goto :error

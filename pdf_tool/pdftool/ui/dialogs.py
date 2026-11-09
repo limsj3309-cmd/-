@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import core
+from ..security import safe_filename
 
 PATH_ROLE = Qt.ItemDataRole.UserRole
 
@@ -205,10 +206,7 @@ class SplitDialog(QDialog):
         return self._dir.text().strip()
 
     def base_name(self) -> str:
-        name = self._base.text().strip() or "분할"
-        for ch in '\\/:*?"<>|':
-            name = name.replace(ch, "_")
-        return name
+        return safe_filename(self._base.text(), "분할")
 
     def _on_accept(self):
         mode = self._mode.checkedId()

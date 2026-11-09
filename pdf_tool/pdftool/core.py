@@ -20,6 +20,8 @@ from typing import Callable, Iterable, Optional, Sequence
 import pymupdf
 from PIL import Image
 
+from .security import Protection, protect, safe_filename
+
 # 진행률 콜백: (완료 수, 전체 수). 취소하려면 콜백 안에서 Cancelled 예외를 던진다.
 Progress = Optional[Callable[[int, int], None]]
 
@@ -47,6 +49,11 @@ def _report(progress: Progress, done: int, total: int) -> None:
 # ---------------------------------------------------------------------------
 # 열기 / 저장
 # ---------------------------------------------------------------------------
+# 악의적으로 큰 파일로 메모리를 고갈시키는 것을 막기 위한 상한
+MAX_FILE_BYTES = 1024 * 1024 * 1024  # 1GB
+MAX_PAGES = 20_000
+
+
 def open_pdf(path: str | os.PathLike, password: str | None = None) -> pymupdf.Document:
     """PDF를 메모리로 읽어서 연다.
 
@@ -55,6 +62,12 @@ def open_pdf(path: str | os.PathLike, password: str | None = None) -> pymupdf.Do
     """
     path = Path(path)
     try:
+        size = path.stat().st_size
+        if size > MAX_FILE_BYTES:
+            raise PdfToolError(
+                f"파일이 너무 큽니다 ({human_size(size)}). "
+                f"{human_size(MAX_FILE_BYTES)} 이하의 파일만 열 수 있습니다.\n{path}"
+            )
         data = path.read_bytes()
     except OSError as exc:
         raise PdfToolError(f"파일을 읽을 수 없습니다.\n{path}\n({exc})") from exc
@@ -73,6 +86,10 @@ def open_pdf_bytes(data: bytes, password: str | None = None, name: str = "") -> 
     if doc.page_count == 0:
         doc.close()
         raise PdfToolError(f"페이지가 없는 PDF입니다: {name}")
+    if doc.page_count > MAX_PAGES:
+        count = doc.page_count
+        doc.close()
+        raise PdfToolError(f"페이지가 너무 많습니다 ({count}페이지, 최대 {MAX_PAGES}페이지): {name}")
     return doc
 
 
@@ -495,9 +512,14 @@ def split_document(
     out_dir: str | os.PathLike,
     base_name: str,
     progress: Progress = None,
+    protection: Optional[Protection] = None,
 ) -> list[Path]:
-    """페이지 묶음마다 별도의 PDF로 저장한다. 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다."""
+    """페이지 묶음마다 별도의 PDF로 저장한다. 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다.
+
+    protection 이 있으면 각 파일에 같은 암호를 적용한다.
+    """
     out_dir = Path(out_dir)
+    base_name = safe_filename(base_name, "분할")
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     total = len(groups)
@@ -507,7 +529,7 @@ def split_document(
         for idx in group:
             part.insert_pdf(doc, from_page=idx, to_page=idx)
         path = unique_path(out_dir / f"{base_name}_{_group_label(group)}.pdf")
-        write_file_atomic(part.tobytes(garbage=3, deflate=True), path)
+        write_file_atomic(protect(part.tobytes(garbage=3, deflate=True), protection), path)
         part.close()
         written.append(path)
         _report(progress, i + 1, total)
