@@ -16,7 +16,7 @@ const RtfImport = (() => {
     'falt', 'panose', 'template', 'userprops', 'docvar', 'blipuid', 'listpicture', 'protusertbl', 'defchp', 'defpap', 'pn']);
   const CJK_RE = /[ᄀ-ᇿ　-鿿가-힯豈-﫿＀-￯]/;
 
-  const decoders = {};
+  const decoders = dict();
   function decoderFor(name) {
     if (!decoders[name]) {
       try { decoders[name] = new TextDecoder(name); } catch (e) { decoders[name] = new TextDecoder('windows-1252'); }
@@ -62,7 +62,7 @@ const RtfImport = (() => {
     for (let k = 0; k < u8.length; k += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(k, k + 0x8000));
     if (!/^\{\\rtf/.test(s)) throw new Error('RTF 형식이 아닙니다.');
 
-    const fonts = {}, colors = [], styleNames = {};
+    const fonts = dict(), colors = [], styleNames = dict();
     let defCodepage = 'windows-1252', defFont = 0;
     const frag = doc.createDocumentFragment();
     const sink = HtmlBuild.makeSink(doc, frag);
@@ -79,7 +79,7 @@ const RtfImport = (() => {
     let rowDef = { left: 0, cells: [], pend: { hm: 0, vm: 0 } };
     let tableRows = null, curCells = [], cell = null;
     let fieldHref = null;
-    const counters = {};
+    const counters = dict();
 
     const fontName = (idx) => (idx !== undefined && fonts[idx] ? fonts[idx].name : null);
     function props(text) {
@@ -184,8 +184,8 @@ const RtfImport = (() => {
       if (SKIP.has(w)) { st.skip = true; return; }
       if (st.dest === 'fonttbl') {
         if (w === 'f') { curFont = fonts[param] = { name: '', enc: null }; }
-        else if (w === 'fcharset' && curFont) curFont.enc = CHARSET[param] || null;
-        else if (w === 'cpg' && curFont && CODEPAGE[param]) curFont.enc = CODEPAGE[param];
+        else if (w === 'fcharset' && curFont) curFont.enc = own(CHARSET, param) || null;
+        else if (w === 'cpg' && curFont && own(CODEPAGE, param)) curFont.enc = own(CODEPAGE, param);
         return;
       }
       if (st.dest === 'colortbl') {
@@ -207,7 +207,7 @@ const RtfImport = (() => {
       }
       if (st.skip) return;
       switch (w) {
-        case 'ansicpg': defCodepage = CODEPAGE[param] || (param >= 1250 && param <= 1258 ? 'windows-' + param : defCodepage); return;
+        case 'ansicpg': defCodepage = own(CODEPAGE, param) || (param >= 1250 && param <= 1258 ? 'windows-' + param : defCodepage); return;
         case 'deff': defFont = param; c.f = param; return;
         case 'uc': st.uc = param; return;
         case 'u': flushBytes(); addText(String.fromCharCode(param < 0 ? param + 65536 : param)); skipCount = st.uc; return;

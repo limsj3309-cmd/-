@@ -58,7 +58,7 @@ const DocxImport = (() => {
         }
         case 'highlight': {
           const v = val(c);
-          p.hl = v && v !== 'none' ? HIGHLIGHTS[v] || null : null;
+          p.hl = v && v !== 'none' ? own(HIGHLIGHTS, v) || null : null;
           break;
         }
         case 'shd': {
@@ -91,7 +91,7 @@ const DocxImport = (() => {
         case 'pStyle': p.styleId = val(c); break;
         case 'jc': {
           const v = val(c);
-          p.align = { left: 'left', start: 'left', center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' }[v] || 'left';
+          p.align = own({ left: 'left', start: 'left', center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' }, v) || 'left';
           break;
         }
         case 'ind': {
@@ -147,7 +147,7 @@ const DocxImport = (() => {
     const baseDir = mainPath.replace(/[^/]*$/, '');
     const relsPath = baseDir + '_rels/' + mainPath.slice(baseDir.length) + '.rels';
 
-    const rels = {};
+    const rels = dict();
     const relsXml = await readXml(relsPath);
     let stylesPath = baseDir + 'styles.xml', numberingPath = baseDir + 'numbering.xml', themePath = baseDir + 'theme/theme1.xml';
     if (relsXml) {
@@ -181,7 +181,7 @@ const DocxImport = (() => {
     };
 
     // 스타일
-    const styles = {};
+    const styles = dict();
     let defRPr = {}, defPPr = {}, defaultParaStyle = null;
     const stylesXml = await readXml(stylesPath).catch(() => null);
     if (stylesXml) {
@@ -223,18 +223,18 @@ const DocxImport = (() => {
     };
 
     // 번호 매기기
-    const abstracts = {}, nums = {};
+    const abstracts = dict(), nums = dict();
     const numXml = await readXml(numberingPath).catch(() => null);
     if (numXml) {
       for (const a of descendants(numXml, 'abstractNum')) {
-        const lv = {};
+        const lv = dict();
         for (const l of kids(a, 'lvl')) {
           lv[attr(l, 'ilvl')] = { fmt: val(kid(l, 'numFmt')) || 'decimal', start: num(val(kid(l, 'start'))) ?? 1 };
         }
         abstracts[attr(a, 'abstractNumId')] = lv;
       }
       for (const n of descendants(numXml, 'num')) {
-        const ov = {};
+        const ov = dict();
         for (const o of kids(n, 'lvlOverride')) {
           const so = kid(o, 'startOverride');
           if (so) ov[attr(o, 'ilvl')] = num(val(so));
@@ -248,10 +248,10 @@ const DocxImport = (() => {
       const l = (abstracts[n.abs] || {})[ilvl] || { fmt: 'decimal', start: 1 };
       return { fmt: l.fmt, start: n.ov[ilvl] ?? l.start };
     };
-    const counters = {};
+    const counters = dict();
 
     const stats = { images: 0, skippedImages: 0 };
-    const mediaCache = {};
+    const mediaCache = dict();
     async function mediaUrl(relId) {
       const r = rels[relId];
       if (!r || r.external) return null;
@@ -260,8 +260,8 @@ const DocxImport = (() => {
       if (zip[r.target]) {
         const bytes = await zip[r.target]();
         const ext = (r.target.split('.').pop() || '').toLowerCase();
-        const kind = sniffImage(bytes) || (IMAGE_MIME[ext] ? ext : null);
-        if (kind && IMAGE_MIME[kind]) url = 'data:' + IMAGE_MIME[kind] + ';base64,' + bytesToBase64(bytes);
+        const kind = sniffImage(bytes) || (own(IMAGE_MIME, ext) ? ext : null);
+        if (kind && own(IMAGE_MIME, kind)) url = 'data:' + own(IMAGE_MIME, kind) + ';base64,' + bytesToBase64(bytes);
       }
       mediaCache[r.target] = url;
       return url;

@@ -304,7 +304,8 @@ async function insertImageFiles(files) {
     if (!sz.w) continue;
     if (!/^data:image\/(png|jpeg|gif|bmp)/.test(src)) src = await toPng(src, sz);
     const w = Math.min(sz.w, CONTENT_W_PX);
-    html += `<img src="${src}" width="${w}">`;
+    if (!/^data:image\/(png|jpeg|gif|bmp);base64,[A-Za-z0-9+/=]+$/.test(src)) continue;
+    html += `<img src="${escapeHtml(src)}" width="${Math.round(w)}">`;
   }
   if (!html) return;
   focusEditor();

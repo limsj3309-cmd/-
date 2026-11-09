@@ -24,9 +24,10 @@ const DocxExport = (() => {
     if (p.s) x += '<w:strike/>';
     if (p.color) x += `<w:color w:val="${p.color}"/>`;
     if (p.sizePt) x += `<w:sz w:val="${Math.round(p.sizePt * 2)}"/><w:szCs w:val="${Math.round(p.sizePt * 2)}"/>`;
-    if (p.bg && HIGHLIGHT_BY_HEX[p.bg]) x += `<w:highlight w:val="${HIGHLIGHT_BY_HEX[p.bg]}"/>`;
+    const hl = p.bg && own(HIGHLIGHT_BY_HEX, p.bg);
+    if (hl) x += `<w:highlight w:val="${hl}"/>`;
     if (p.u) x += '<w:u w:val="single"/>';
-    if (p.bg && !HIGHLIGHT_BY_HEX[p.bg]) x += `<w:shd w:val="clear" w:color="auto" w:fill="${p.bg}"/>`;
+    if (p.bg && !hl) x += `<w:shd w:val="clear" w:color="auto" w:fill="${p.bg}"/>`;
     if (p.sup) x += '<w:vertAlign w:val="superscript"/>';
     else if (p.sub) x += '<w:vertAlign w:val="subscript"/>';
     return x ? '<w:rPr>' + x + '</w:rPr>' : '';
@@ -100,7 +101,7 @@ const DocxExport = (() => {
       let i = 0;
       while (i < runs.length) {
         const r = runs[i];
-        const href = r.t === 'text' && r.props.href && /^(https?:|mailto:|ftp:|file:)/i.test(r.props.href) ? r.props.href : null;
+        const href = r.t === 'text' && r.props.href && /^(https?:|mailto:|ftp:)/i.test(r.props.href) ? r.props.href : null;
         if (href) {
           let rid = linkRel.get(href);
           if (!rid) {

@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-D4Dc+D4TjBNYugAV1A3tdiZN9W/qvg5iiVqe5WQJgUE='; style-src 'unsafe-inline'; img-src data: blob:; connect-src file:; font-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Zx0tEa6We0ke8w3Q796zpRzJmzef5EzfAHiG/EJUkRU='; style-src 'unsafe-inline'; img-src data: blob:; connect-src file:; font-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; media-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>현서의 글방</title>
@@ -356,6 +356,12 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 'use strict';
 /* ===== util.js ===== */
 /* 공통 상수와 도우미 */
+
+// 프로토타입 오염 방지: 문서에서 읽은 이름(스타일 ID, 번호 ID 등)을 키로 쓰는 표는 프로토타입 없는 객체로 만들고,
+// 고정된 표에서 찾을 때는 자기 속성만 봄. 2차 방어로 Object.prototype을 얼려 둠.
+Object.freeze(Object.prototype);
+const dict = () => Object.create(null);
+const own = (table, key) => (key != null && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined);
 const LW = {
   DEFAULT_FONT: '맑은 고딕',
   DEFAULT_SIZE_PT: 11,
@@ -511,7 +517,14 @@ function cssColorToHex(c) {
 function escapeXml(s) {
   return String(s)
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // 짝 없는 서로게이트는 XML에서 오류가 되므로 대체 문자로
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** 화면에 보일 파일 이름: 글자 방향을 뒤집는 제어 문자(확장자 위장에 쓰임)와 제어 문자 제거 */
+function displayName(name) {
+  return String(name).replace(/[\u0000-\u001F\u007F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').slice(0, 255) || '문서';
 }
 const escapeHtml = escapeXml;
 
@@ -641,7 +654,7 @@ const Zip = (() => {
     const count = dv.getUint16(eocd + 10, true);
     if (count > MAX_ENTRIES) throw new Error('ZIP 항목이 너무 많습니다.');
     let p = dv.getUint32(eocd + 16, true);
-    const entries = {};
+    const entries = dict(); // 항목 이름이 "__proto__"여도 안전하게
     const utf8 = new TextDecoder('utf-8');
     for (let n = 0; n < count; n++) {
       if (dv.getUint32(p, true) !== 0x02014b50) break;
@@ -920,7 +933,7 @@ const HtmlBuild = (() => {
       if (total > 0 && total < LW.CONTENT_W_TW * 0.95) table.style.width = Math.round(total / 15) + 'px';
     }
     table.appendChild(tbody);
-    const owner = {};
+    const owner = dict();
     for (const row of rows) {
       const tr = doc.createElement('tr');
       const centers = row.centers && row.centers.length > row.tds.length ? row.centers : null;
@@ -1007,7 +1020,7 @@ const DocxImport = (() => {
         }
         case 'highlight': {
           const v = val(c);
-          p.hl = v && v !== 'none' ? HIGHLIGHTS[v] || null : null;
+          p.hl = v && v !== 'none' ? own(HIGHLIGHTS, v) || null : null;
           break;
         }
         case 'shd': {
@@ -1040,7 +1053,7 @@ const DocxImport = (() => {
         case 'pStyle': p.styleId = val(c); break;
         case 'jc': {
           const v = val(c);
-          p.align = { left: 'left', start: 'left', center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' }[v] || 'left';
+          p.align = own({ left: 'left', start: 'left', center: 'center', right: 'right', end: 'right', both: 'justify', distribute: 'justify' }, v) || 'left';
           break;
         }
         case 'ind': {
@@ -1096,7 +1109,7 @@ const DocxImport = (() => {
     const baseDir = mainPath.replace(/[^/]*$/, '');
     const relsPath = baseDir + '_rels/' + mainPath.slice(baseDir.length) + '.rels';
 
-    const rels = {};
+    const rels = dict();
     const relsXml = await readXml(relsPath);
     let stylesPath = baseDir + 'styles.xml', numberingPath = baseDir + 'numbering.xml', themePath = baseDir + 'theme/theme1.xml';
     if (relsXml) {
@@ -1130,7 +1143,7 @@ const DocxImport = (() => {
     };
 
     // 스타일
-    const styles = {};
+    const styles = dict();
     let defRPr = {}, defPPr = {}, defaultParaStyle = null;
     const stylesXml = await readXml(stylesPath).catch(() => null);
     if (stylesXml) {
@@ -1172,18 +1185,18 @@ const DocxImport = (() => {
     };
 
     // 번호 매기기
-    const abstracts = {}, nums = {};
+    const abstracts = dict(), nums = dict();
     const numXml = await readXml(numberingPath).catch(() => null);
     if (numXml) {
       for (const a of descendants(numXml, 'abstractNum')) {
-        const lv = {};
+        const lv = dict();
         for (const l of kids(a, 'lvl')) {
           lv[attr(l, 'ilvl')] = { fmt: val(kid(l, 'numFmt')) || 'decimal', start: num(val(kid(l, 'start'))) ?? 1 };
         }
         abstracts[attr(a, 'abstractNumId')] = lv;
       }
       for (const n of descendants(numXml, 'num')) {
-        const ov = {};
+        const ov = dict();
         for (const o of kids(n, 'lvlOverride')) {
           const so = kid(o, 'startOverride');
           if (so) ov[attr(o, 'ilvl')] = num(val(so));
@@ -1197,10 +1210,10 @@ const DocxImport = (() => {
       const l = (abstracts[n.abs] || {})[ilvl] || { fmt: 'decimal', start: 1 };
       return { fmt: l.fmt, start: n.ov[ilvl] ?? l.start };
     };
-    const counters = {};
+    const counters = dict();
 
     const stats = { images: 0, skippedImages: 0 };
-    const mediaCache = {};
+    const mediaCache = dict();
     async function mediaUrl(relId) {
       const r = rels[relId];
       if (!r || r.external) return null;
@@ -1209,8 +1222,8 @@ const DocxImport = (() => {
       if (zip[r.target]) {
         const bytes = await zip[r.target]();
         const ext = (r.target.split('.').pop() || '').toLowerCase();
-        const kind = sniffImage(bytes) || (IMAGE_MIME[ext] ? ext : null);
-        if (kind && IMAGE_MIME[kind]) url = 'data:' + IMAGE_MIME[kind] + ';base64,' + bytesToBase64(bytes);
+        const kind = sniffImage(bytes) || (own(IMAGE_MIME, ext) ? ext : null);
+        if (kind && own(IMAGE_MIME, kind)) url = 'data:' + own(IMAGE_MIME, kind) + ';base64,' + bytesToBase64(bytes);
       }
       mediaCache[r.target] = url;
       return url;
@@ -1855,9 +1868,10 @@ const DocxExport = (() => {
     if (p.s) x += '<w:strike/>';
     if (p.color) x += `<w:color w:val="${p.color}"/>`;
     if (p.sizePt) x += `<w:sz w:val="${Math.round(p.sizePt * 2)}"/><w:szCs w:val="${Math.round(p.sizePt * 2)}"/>`;
-    if (p.bg && HIGHLIGHT_BY_HEX[p.bg]) x += `<w:highlight w:val="${HIGHLIGHT_BY_HEX[p.bg]}"/>`;
+    const hl = p.bg && own(HIGHLIGHT_BY_HEX, p.bg);
+    if (hl) x += `<w:highlight w:val="${hl}"/>`;
     if (p.u) x += '<w:u w:val="single"/>';
-    if (p.bg && !HIGHLIGHT_BY_HEX[p.bg]) x += `<w:shd w:val="clear" w:color="auto" w:fill="${p.bg}"/>`;
+    if (p.bg && !hl) x += `<w:shd w:val="clear" w:color="auto" w:fill="${p.bg}"/>`;
     if (p.sup) x += '<w:vertAlign w:val="superscript"/>';
     else if (p.sub) x += '<w:vertAlign w:val="subscript"/>';
     return x ? '<w:rPr>' + x + '</w:rPr>' : '';
@@ -1931,7 +1945,7 @@ const DocxExport = (() => {
       let i = 0;
       while (i < runs.length) {
         const r = runs[i];
-        const href = r.t === 'text' && r.props.href && /^(https?:|mailto:|ftp:|file:)/i.test(r.props.href) ? r.props.href : null;
+        const href = r.t === 'text' && r.props.href && /^(https?:|mailto:|ftp:)/i.test(r.props.href) ? r.props.href : null;
         if (href) {
           let rid = linkRel.get(href);
           if (!rid) {
@@ -2407,7 +2421,7 @@ const DocImport = (() => {
     };
 
     // 목록
-    const lists = {};
+    const lists = dict();
     const lfos = [];
     {
       const [fc, lcb] = fcLcb(73);
@@ -2597,7 +2611,7 @@ const DocImport = (() => {
     // 문단 단위로 나누고 HTML 만들기
     const frag = doc.createDocumentFragment();
     const sink = HtmlBuild.makeSink(doc, frag);
-    const counters = {};
+    const counters = dict();
     let tableState = null; // { rows: [{ tds, tdef }], cur: [td] }
     let cellFrag = null;
     const fieldStack = [];
@@ -2756,7 +2770,7 @@ const RtfImport = (() => {
     'falt', 'panose', 'template', 'userprops', 'docvar', 'blipuid', 'listpicture', 'protusertbl', 'defchp', 'defpap', 'pn']);
   const CJK_RE = /[ᄀ-ᇿ　-鿿가-힯豈-﫿＀-￯]/;
 
-  const decoders = {};
+  const decoders = dict();
   function decoderFor(name) {
     if (!decoders[name]) {
       try { decoders[name] = new TextDecoder(name); } catch (e) { decoders[name] = new TextDecoder('windows-1252'); }
@@ -2802,7 +2816,7 @@ const RtfImport = (() => {
     for (let k = 0; k < u8.length; k += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(k, k + 0x8000));
     if (!/^\{\\rtf/.test(s)) throw new Error('RTF 형식이 아닙니다.');
 
-    const fonts = {}, colors = [], styleNames = {};
+    const fonts = dict(), colors = [], styleNames = dict();
     let defCodepage = 'windows-1252', defFont = 0;
     const frag = doc.createDocumentFragment();
     const sink = HtmlBuild.makeSink(doc, frag);
@@ -2819,7 +2833,7 @@ const RtfImport = (() => {
     let rowDef = { left: 0, cells: [], pend: { hm: 0, vm: 0 } };
     let tableRows = null, curCells = [], cell = null;
     let fieldHref = null;
-    const counters = {};
+    const counters = dict();
 
     const fontName = (idx) => (idx !== undefined && fonts[idx] ? fonts[idx].name : null);
     function props(text) {
@@ -2924,8 +2938,8 @@ const RtfImport = (() => {
       if (SKIP.has(w)) { st.skip = true; return; }
       if (st.dest === 'fonttbl') {
         if (w === 'f') { curFont = fonts[param] = { name: '', enc: null }; }
-        else if (w === 'fcharset' && curFont) curFont.enc = CHARSET[param] || null;
-        else if (w === 'cpg' && curFont && CODEPAGE[param]) curFont.enc = CODEPAGE[param];
+        else if (w === 'fcharset' && curFont) curFont.enc = own(CHARSET, param) || null;
+        else if (w === 'cpg' && curFont && own(CODEPAGE, param)) curFont.enc = own(CODEPAGE, param);
         return;
       }
       if (st.dest === 'colortbl') {
@@ -2947,7 +2961,7 @@ const RtfImport = (() => {
       }
       if (st.skip) return;
       switch (w) {
-        case 'ansicpg': defCodepage = CODEPAGE[param] || (param >= 1250 && param <= 1258 ? 'windows-' + param : defCodepage); return;
+        case 'ansicpg': defCodepage = own(CODEPAGE, param) || (param >= 1250 && param <= 1258 ? 'windows-' + param : defCodepage); return;
         case 'deff': defFont = param; c.f = param; return;
         case 'uc': st.uc = param; return;
         case 'u': flushBytes(); addText(String.fromCharCode(param < 0 ? param + 65536 : param)); skipCount = st.uc; return;
@@ -3154,7 +3168,7 @@ const HtmlIO = (() => {
     for (const name of STYLE_KEEP) {
       let v = src.getPropertyValue(name);
       if (!v) continue;
-      if (name === 'font-size' && KEYWORD_SIZES[v]) v = KEYWORD_SIZES[v];
+      if (name === 'font-size' && own(KEYWORD_SIZES, v)) v = own(KEYWORD_SIZES, v);
       if (name === 'font-family') {
         const names = v.split(',').map((x) => cleanFontName(x.replace(/["']/g, ''))).filter((x) => x && !FALLBACK_SET.has(x.toLowerCase()));
         if (!names.length) continue;
@@ -3228,7 +3242,7 @@ const HtmlIO = (() => {
           const color = n.getAttribute('color');
           if (color && cssColorToHex(color.trim())) el.style.color = '#' + cssColorToHex(color.trim());
           else if (color && /^[a-z]{3,20}$/i.test(color.trim())) el.style.color = color.trim();
-          if (FONT_SIZES[n.getAttribute('size')]) el.style.fontSize = FONT_SIZES[n.getAttribute('size')];
+          if (own(FONT_SIZES, n.getAttribute('size'))) el.style.fontSize = own(FONT_SIZES, n.getAttribute('size'));
           const safe = safeStyleText(el.getAttribute('style'));
           if (safe) el.setAttribute('style', safe); else el.removeAttribute('style');
         } else {
@@ -3298,7 +3312,7 @@ const HtmlIO = (() => {
     if (!bm) return null;
     const parts = text.split('--' + bm[1]);
     let html = null;
-    const res = {};
+    const res = dict();
     for (const part of parts) {
       const idx = part.search(/\r?\n\r?\n/);
       if (idx < 0) continue;
@@ -3322,7 +3336,10 @@ const HtmlIO = (() => {
         else bytes = Uint8Array.from(body, (ch) => ch.charCodeAt(0) & 0xff);
         try { html = new TextDecoder(charset).decode(bytes); } catch (e) { html = new TextDecoder('utf-8').decode(bytes); }
       } else if (/^image\//i.test(type) && te === 'base64' && loc) {
-        res[loc.trim()] = 'data:' + type.trim() + ';base64,' + body.replace(/\s+/g, '');
+        // 그림 형식·base64 본문을 검증한 것만 씀 (형식 문자열로 HTML을 끼워 넣지 못하게)
+        const mime = type.trim().toLowerCase();
+        const b64 = body.replace(/\s+/g, '');
+        if (/^image\/(png|jpeg|gif|bmp|webp)$/.test(mime) && /^[A-Za-z0-9+/]*={0,2}$/.test(b64)) res[loc.trim()] = 'data:' + mime + ';base64,' + b64;
       }
     }
     if (html) {
@@ -3716,7 +3733,8 @@ async function insertImageFiles(files) {
     if (!sz.w) continue;
     if (!/^data:image\/(png|jpeg|gif|bmp)/.test(src)) src = await toPng(src, sz);
     const w = Math.min(sz.w, CONTENT_W_PX);
-    html += `<img src="${src}" width="${w}">`;
+    if (!/^data:image\/(png|jpeg|gif|bmp);base64,[A-Za-z0-9+/=]+$/.test(src)) continue;
+    html += `<img src="${escapeHtml(src)}" width="${Math.round(w)}">`;
   }
   if (!html) return;
   focusEditor();
@@ -4510,7 +4528,7 @@ function buildTableGrid() {
 // ---------- 파일 ----------
 function formatFromName(name) {
   const ext = (name.split('.').pop() || '').toLowerCase();
-  return { docx: 'docx', doc: 'doc', txt: 'txt' }[ext] || null;
+  return own({ docx: 'docx', doc: 'doc', txt: 'txt' }, ext) || null;
 }
 
 function sniff(u8, name) {
@@ -4708,7 +4726,7 @@ function failed(title, e) {
 
 function setFile(handle, name, fmt, overwrite) {
   App.fileHandle = handle;
-  App.fileName = name;
+  App.fileName = displayName(name);
   App.fileFormat = fmt;
   App.canOverwrite = overwrite;
   App.dirty = false;

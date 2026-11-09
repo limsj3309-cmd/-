@@ -86,7 +86,7 @@ const Zip = (() => {
     const count = dv.getUint16(eocd + 10, true);
     if (count > MAX_ENTRIES) throw new Error('ZIP 항목이 너무 많습니다.');
     let p = dv.getUint32(eocd + 16, true);
-    const entries = {};
+    const entries = dict(); // 항목 이름이 "__proto__"여도 안전하게
     const utf8 = new TextDecoder('utf-8');
     for (let n = 0; n < count; n++) {
       if (dv.getUint32(p, true) !== 0x02014b50) break;

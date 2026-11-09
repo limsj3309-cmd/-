@@ -6,7 +6,7 @@ set -euo pipefail
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
-VERSION="${VERSION:-1.1.1}"
+VERSION="${VERSION:-1.1.2}"
 mkdir -p build "$ROOT/dist"
 
 python3 "$ROOT/build.py"

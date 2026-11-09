@@ -168,7 +168,7 @@ function buildTableGrid() {
 // ---------- 파일 ----------
 function formatFromName(name) {
   const ext = (name.split('.').pop() || '').toLowerCase();
-  return { docx: 'docx', doc: 'doc', txt: 'txt' }[ext] || null;
+  return own({ docx: 'docx', doc: 'doc', txt: 'txt' }, ext) || null;
 }
 
 function sniff(u8, name) {
@@ -366,7 +366,7 @@ function failed(title, e) {
 
 function setFile(handle, name, fmt, overwrite) {
   App.fileHandle = handle;
-  App.fileName = name;
+  App.fileName = displayName(name);
   App.fileFormat = fmt;
   App.canOverwrite = overwrite;
   App.dirty = false;

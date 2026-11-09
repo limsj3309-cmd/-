@@ -185,7 +185,7 @@ const HtmlBuild = (() => {
       if (total > 0 && total < LW.CONTENT_W_TW * 0.95) table.style.width = Math.round(total / 15) + 'px';
     }
     table.appendChild(tbody);
-    const owner = {};
+    const owner = dict();
     for (const row of rows) {
       const tr = doc.createElement('tr');
       const centers = row.centers && row.centers.length > row.tds.length ? row.centers : null;

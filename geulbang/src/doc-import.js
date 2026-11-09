@@ -261,7 +261,7 @@ const DocImport = (() => {
     };
 
     // 목록
-    const lists = {};
+    const lists = dict();
     const lfos = [];
     {
       const [fc, lcb] = fcLcb(73);
@@ -451,7 +451,7 @@ const DocImport = (() => {
     // 문단 단위로 나누고 HTML 만들기
     const frag = doc.createDocumentFragment();
     const sink = HtmlBuild.makeSink(doc, frag);
-    const counters = {};
+    const counters = dict();
     let tableState = null; // { rows: [{ tds, tdef }], cur: [td] }
     let cellFrag = null;
     const fieldStack = [];

@@ -172,6 +172,38 @@ const assert = (c, m) => { if (!c) { console.log('FAIL:', m); process.exitCode =
   });
   assert(page.url() === url0 && (await page.evaluate(() => window.__dropPrevented)), 'drops outside the editor do not navigate');
 
+  // 11) 프로토타입 오염: 번호 ID·스타일 ID·ZIP 항목 이름이 __proto__/constructor 인 docx
+  const proto = await page.evaluate(async () => {
+    const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+    const doc = `<?xml version="1.0"?><w:document ${W}><w:body>
+      <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="__proto__"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>
+      <w:p><w:pPr><w:pStyle w:val="constructor"/><w:jc w:val="constructor"/></w:pPr><w:r><w:rPr><w:highlight w:val="__proto__"/></w:rPr><w:t>styled</w:t></w:r></w:p></w:body></w:document>`;
+    const numbering = `<?xml version="1.0"?><w:numbering ${W}><w:abstractNum w:abstractNumId="__proto__"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum><w:num w:numId="__proto__"><w:abstractNumId w:val="__proto__"/></w:num></w:numbering>`;
+    const styles = `<?xml version="1.0"?><w:styles ${W}><w:style w:type="paragraph" w:styleId="__proto__"><w:name w:val="x"/></w:style></w:styles>`;
+    const blob = await Zip.write([{ name: 'word/document.xml', data: doc }, { name: 'word/numbering.xml', data: numbering },
+      { name: 'word/styles.xml', data: styles }, { name: '__proto__', data: 'x' }, { name: 'constructor', data: 'x' }]);
+    let res = 'loaded';
+    try { await FileOps.load(new File([await blob.arrayBuffer()], 'p.docx'), null); } catch (e) { res = 'error: ' + e.message; }
+    return { res, keys: Object.getOwnPropertyNames(Object.prototype).filter((k) => /^\d+$/.test(k)), probe: ({})[1], text: App.editor.innerText };
+  });
+  assert(proto.res === 'loaded' && !proto.keys.length && proto.probe === undefined && /item/.test(proto.text) && /styled/.test(proto.text),
+    'prototype pollution via __proto__/constructor IDs blocked ' + JSON.stringify(proto));
+
+  // 12) MHT: 그림 형식 문자열로 HTML 끼워 넣기
+  const mht = 'MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="B"\r\n\r\n--B\r\nContent-Type: text/html; charset="utf-8"\r\n\r\n<p>mht</p><img src="a.png">\r\n' +
+    '--B\r\nContent-Type: image/png"><img src=x onerror="window.__pwned=9">\r\nContent-Transfer-Encoding: base64\r\nContent-Location: a.png\r\n\r\niVBORw0KGgo=\r\n--B--';
+  r = await open(Buffer.from(mht).toString('base64'), 'evil.mht');
+  await page.waitForTimeout(200);
+  bad = await dangerous();
+  assert(r.ok && !bad.length, 'mht: forged image type cannot inject markup ' + bad);
+
+  // 13) 화면의 파일 이름: 글자 방향 제어 문자 제거 (확장자 위장 방지)
+  const shown = await page.evaluate(async () => {
+    await FileOps.load(new File(['hi'], '보고서\u202Excod.exe.txt'), null);
+    return document.getElementById('docTitle').textContent;
+  });
+  assert(!/[\u202A-\u202E\u2066-\u2069]/.test(shown), 'bidi override characters removed from displayed file name: ' + shown);
+
   const pwned = await page.evaluate(() => window.__pwned);
   assert(pwned === undefined, 'no injected script ran (marker=' + pwned + ')');
   assert(requests.length === 0, 'no outbound network requests ' + JSON.stringify(requests));

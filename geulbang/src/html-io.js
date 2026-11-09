@@ -18,7 +18,7 @@ const HtmlIO = (() => {
     for (const name of STYLE_KEEP) {
       let v = src.getPropertyValue(name);
       if (!v) continue;
-      if (name === 'font-size' && KEYWORD_SIZES[v]) v = KEYWORD_SIZES[v];
+      if (name === 'font-size' && own(KEYWORD_SIZES, v)) v = own(KEYWORD_SIZES, v);
       if (name === 'font-family') {
         const names = v.split(',').map((x) => cleanFontName(x.replace(/["']/g, ''))).filter((x) => x && !FALLBACK_SET.has(x.toLowerCase()));
         if (!names.length) continue;
@@ -92,7 +92,7 @@ const HtmlIO = (() => {
           const color = n.getAttribute('color');
           if (color && cssColorToHex(color.trim())) el.style.color = '#' + cssColorToHex(color.trim());
           else if (color && /^[a-z]{3,20}$/i.test(color.trim())) el.style.color = color.trim();
-          if (FONT_SIZES[n.getAttribute('size')]) el.style.fontSize = FONT_SIZES[n.getAttribute('size')];
+          if (own(FONT_SIZES, n.getAttribute('size'))) el.style.fontSize = own(FONT_SIZES, n.getAttribute('size'));
           const safe = safeStyleText(el.getAttribute('style'));
           if (safe) el.setAttribute('style', safe); else el.removeAttribute('style');
         } else {
@@ -162,7 +162,7 @@ const HtmlIO = (() => {
     if (!bm) return null;
     const parts = text.split('--' + bm[1]);
     let html = null;
-    const res = {};
+    const res = dict();
     for (const part of parts) {
       const idx = part.search(/\r?\n\r?\n/);
       if (idx < 0) continue;
@@ -186,7 +186,10 @@ const HtmlIO = (() => {
         else bytes = Uint8Array.from(body, (ch) => ch.charCodeAt(0) & 0xff);
         try { html = new TextDecoder(charset).decode(bytes); } catch (e) { html = new TextDecoder('utf-8').decode(bytes); }
       } else if (/^image\//i.test(type) && te === 'base64' && loc) {
-        res[loc.trim()] = 'data:' + type.trim() + ';base64,' + body.replace(/\s+/g, '');
+        // 그림 형식·base64 본문을 검증한 것만 씀 (형식 문자열로 HTML을 끼워 넣지 못하게)
+        const mime = type.trim().toLowerCase();
+        const b64 = body.replace(/\s+/g, '');
+        if (/^image\/(png|jpeg|gif|bmp|webp)$/.test(mime) && /^[A-Za-z0-9+/]*={0,2}$/.test(b64)) res[loc.trim()] = 'data:' + mime + ';base64,' + b64;
       }
     }
     if (html) {

@@ -88,8 +88,10 @@ static int app_path(const wchar_t *exe, wchar_t *out, DWORD cap) {
     for (int i = 0; i < 3; i++) {
         HKEY h;
         if (RegOpenKeyExW(roots[i], key, 0, KEY_READ | views[i], &h) != ERROR_SUCCESS) continue;
-        DWORD type, size = cap * sizeof(wchar_t);
+        DWORD type, size = (cap - 1) * sizeof(wchar_t);
         LONG r = RegQueryValueExW(h, NULL, NULL, &type, (BYTE *)out, &size);
+        /* 레지스트리 값이 NUL로 끝나지 않을 수 있으므로 읽은 길이에서 직접 끝냄 */
+        if (r == ERROR_SUCCESS) out[size / sizeof(wchar_t) < cap ? size / sizeof(wchar_t) : cap - 1] = 0;
         RegCloseKey(h);
         if (r == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ)) {
             out[cap - 1] = 0;
@@ -149,7 +151,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     static wchar_t dry[32768];
 #endif
 
-    GetModuleFileNameW(NULL, self, 32768);
+    DWORD selfLen = GetModuleFileNameW(NULL, self, 32768);
+    /* 경로가 잘렸거나 너무 길면(뒤에 붙일 이름 공간 부족) 실행하지 않음 */
+    if (selfLen == 0 || selfLen >= 32768 - 64) return 1;
     wcscpy(dir, self);
     wchar_t *slash = wcsrchr(dir, L'\\');
     if (slash) *slash = 0;
@@ -188,7 +192,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show) {
     int found = find_browser(browser, 32768);
 
     DWORD pn = ExpandEnvironmentStringsW(L"%LOCALAPPDATA%\\" APP_ID L"\\Browser", profile, 32768);
-    if (!pn || pn > 32768) {
+    /* LOCALAPPDATA가 없으면 %...%가 그대로 남으므로 그때도 실행 폴더 아래를 씀 */
+    if (!pn || pn > 32768 || wcschr(profile, L'%')) {
         wcscpy(profile, dir);
         wcscat(profile, L"\\Browser");
     }

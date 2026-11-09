@@ -1,4 +1,10 @@
 /* 공통 상수와 도우미 */
+
+// 프로토타입 오염 방지: 문서에서 읽은 이름(스타일 ID, 번호 ID 등)을 키로 쓰는 표는 프로토타입 없는 객체로 만들고,
+// 고정된 표에서 찾을 때는 자기 속성만 봄. 2차 방어로 Object.prototype을 얼려 둠.
+Object.freeze(Object.prototype);
+const dict = () => Object.create(null);
+const own = (table, key) => (key != null && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined);
 const LW = {
   DEFAULT_FONT: '맑은 고딕',
   DEFAULT_SIZE_PT: 11,
@@ -154,7 +160,14 @@ function cssColorToHex(c) {
 function escapeXml(s) {
   return String(s)
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // 짝 없는 서로게이트는 XML에서 오류가 되므로 대체 문자로
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** 화면에 보일 파일 이름: 글자 방향을 뒤집는 제어 문자(확장자 위장에 쓰임)와 제어 문자 제거 */
+function displayName(name) {
+  return String(name).replace(/[\u0000-\u001F\u007F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '').slice(0, 255) || '문서';
 }
 const escapeHtml = escapeXml;
 
