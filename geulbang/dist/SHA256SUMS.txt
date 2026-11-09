@@ -1,1 +1,2 @@
-fe7f2ea58db19239c2ae4ee75acfad091f8ab1c7ceede53750e9eab6fc27763f  현서의글방_설치_v1.1.2.exe
+c37b9a55bd28b7c0b3e0e27772282ebc23d0de58409d49f723a3226d0135a170  HyunseoGeulbang-Setup-v1.1.2.exe
+9e594fdc2f3377b18f4ec8de68130ad585b38e1c5f5873ede745ca2287d3254d  HyunseoGeulbang-v1.1.2.zip

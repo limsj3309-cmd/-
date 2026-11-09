@@ -3,9 +3,21 @@
 설치 파일 하나(약 240KB)로 설치해 쓰는 문서 편집기입니다.
 인터넷 연결 없이 동작하고, Word 문서(.docx / .doc)를 열고 저장할 수 있으며, 한글과 영어를 모두 쓸 수 있습니다.
 
+## 내려받기
+
+| 파일 | 설명 |
+| --- | --- |
+| [**HyunseoGeulbang-Setup-v1.1.2.exe**](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/HyunseoGeulbang-Setup-v1.1.2.exe) | Windows 설치 파일 (약 240KB) |
+| [HyunseoGeulbang-v1.1.2.zip](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/HyunseoGeulbang-v1.1.2.zip) | 설치 파일 + 설치 없이 쓰는 `geulbang.html` + 설명서 묶음 |
+| [geulbang.html](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/geulbang.html) | 설치 없이 쓰는 버전만 (브라우저로 열기) |
+| [SHA256SUMS.txt](https://github.com/limsj3309-cmd/-/raw/claude/hopeful-bohr-9m8v2u/geulbang/dist/SHA256SUMS.txt) | 내려받은 파일 확인용 체크섬 |
+
+링크를 누르면 바로 내려받아집니다. 브라우저가 "흔히 내려받지 않는 파일"이라고 경고하면 **[계속]/[유지]**를 고르세요
+(서명되지 않은 새 프로그램이라 뜨는 경고입니다). 회사 PC 등에서 .exe 내려받기가 막혀 있으면 ZIP 파일을 받으세요.
+
 ## 설치 (Windows 10 / 11)
 
-1. [`dist/현서의글방_설치_v1.1.2.exe`](dist/) 를 내려받아 실행합니다.
+1. 위의 설치 파일(`HyunseoGeulbang-Setup-v1.1.2.exe`)을 내려받아 실행합니다.
 2. 관리자 권한 없이 현재 사용자 계정에 설치됩니다 (`%LOCALAPPDATA%\Programs\HyunseoGeulbang`).
 3. 설치 중 고를 수 있는 항목
    - 바탕 화면 바로 가기
@@ -87,7 +99,7 @@ HTML 기반 형식입니다. 그림이 있는 문서나 서식을 정확히 유�
 - **임시 저장 최소화**: 복구용 임시 저장은 저장하지 않은 변경이 있을 때만 브라우저 저장소에 남고, 저장·새 문서·열기 뒤에는 지웁니다.
 - **실행기**: DLL은 시스템 폴더에서만 읽고, 브라우저는 관리자 영역(HKLM) 등록 정보를 먼저 찾으며, ASLR·DEP·스택 보호를 켜서 빌드했습니다.
 - **설치 파일 확인**: `dist/SHA256SUMS.txt`의 값과 내려받은 설치 파일의 SHA-256 값을 비교할 수 있습니다
-  (PowerShell: `Get-FileHash .\현서의글방_설치_v1.1.2.exe`). 설치 파일에는 디지털 서명이 없습니다.
+  (PowerShell: `Get-FileHash .\HyunseoGeulbang-Setup-v1.1.2.exe`). 설치 파일에는 디지털 서명이 없습니다.
 
 알아둘 점
 
@@ -104,7 +116,7 @@ HTML 기반 형식입니다. 그림이 있는 문서나 서식을 정확히 유�
 
 ```bash
 python3 build.py                       # src/ → geulbang.html
-installer/build-installer.sh           # → dist/현서의글방_설치_v1.1.2.exe  (NSIS 3, mingw-w64 필요)
+installer/build-installer.sh           # → dist/HyunseoGeulbang-Setup-v1.1.2.exe, dist/HyunseoGeulbang-v1.1.2.zip  (NSIS 3, mingw-w64 필요)
 bash tests/run-all.sh                  # 자동 테스트 (보안 테스트 tests/security-test.js 포함) (Node.js + Playwright + Chromium, python-docx·LibreOffice)
 ```
 
