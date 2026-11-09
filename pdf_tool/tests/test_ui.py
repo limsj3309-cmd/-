@@ -47,6 +47,17 @@ def _process(app, n=20):
         app.processEvents()
 
 
+def _wait_until(cond, timeout_ms=5000):
+    """타이머로 늦게 실행되는 렌더링을 기다린다."""
+    from PySide6.QtTest import QTest
+
+    waited = 0
+    while not cond() and waited < timeout_ms:
+        QTest.qWait(20)
+        waited += 20
+    return cond()
+
+
 def _make(tmp_path, name="a.pdf", pages=4):
     path = tmp_path / name
     path.write_bytes(_text_pdf(pages, name[0]).tobytes())
@@ -56,13 +67,14 @@ def _make(tmp_path, name="a.pdf", pages=4):
 def test_open_view_and_thumbnails(app, win, tmp_path):
     path = _make(tmp_path)
     assert win.open_file(path)
-    _process(app, 50)
     assert win.thumbs.count() == 4
     assert win.stack.currentIndex() == 1
     # 썸네일이 실제로 그려졌는지 (자리표시 이미지가 아닌 캐시)
-    assert len(win.thumbs._cache) == 4
+    assert _wait_until(lambda: len(win.thumbs._cache) == 4)
     # 뷰어가 첫 페이지를 그렸는지
-    assert win.viewer._labels[0].rendered_zoom is not None
+    assert _wait_until(lambda: win.viewer._labels[0].rendered_zoom is not None)
+    # 멀리 있는 마지막 페이지는 아직 그리지 않음 (보이는 페이지만 렌더링)
+    assert win.viewer._labels[-1].rendered_zoom is None
     assert "a.pdf" in win.windowTitle()
     assert not win.a_save.isEnabled()
 
