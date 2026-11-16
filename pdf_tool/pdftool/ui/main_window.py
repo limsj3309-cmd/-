@@ -15,22 +15,31 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QToolBar,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .. import APP_NAME, __version__, core, security
 from ..core import PageRef
+from ..search import TextHit
 from . import dialogs
+from .search_panel import SearchBar, SearchController
 from .thumbnails import ThumbnailList
 from .viewer import ZOOM_STEPS, PageViewer
 from .worker import run_with_progress
 
 PDF_FILTER = "PDF 파일 (*.pdf)"
+MAX_RESULT_ITEMS = 2000  # 검색 결과 목록에 보여줄 최대 줄 수
+HIT_ROLE = Qt.ItemDataRole.UserRole
 
 
 def app_icon() -> QIcon:
@@ -86,9 +95,36 @@ class MainWindow(QMainWindow):
 
         self.thumbs = ThumbnailList()
         self.viewer = PageViewer()
+
+        # 검색
+        self.search = SearchController(self)
+        self.search_bar = SearchBar()
+        self.search_bar.hide()
+        self.result_list = QListWidget()
+        self.result_list.setObjectName("searchResults")
+        self.result_list.setWordWrap(True)
+        self.result_list.setUniformItemSizes(False)
+        self._cur_hit: Optional[TextHit] = None
+        self._search_start = 0
+        self._results_timer = QTimer(self)
+        self._results_timer.setSingleShot(True)
+        self._results_timer.setInterval(200)
+        self._results_timer.timeout.connect(self._rebuild_results)
+
+        # 왼쪽: [페이지 | 검색 결과] 탭, 오른쪽: 찾기 막대 + 뷰어
+        self.side = QTabWidget()
+        self.side.addTab(self.thumbs, "페이지")
+        self.side.addTab(self.result_list, "검색 결과")
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        rl.addWidget(self.search_bar)
+        rl.addWidget(self.viewer, 1)
+
         splitter = QSplitter()
-        splitter.addWidget(self.thumbs)
-        splitter.addWidget(self.viewer)
+        splitter.addWidget(self.side)
+        splitter.addWidget(right)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([220, 980])
 
@@ -109,6 +145,15 @@ class MainWindow(QMainWindow):
         self.thumbs.customContextMenuRequested.connect(self._thumb_menu)
         self.viewer.currentPageChanged.connect(self._on_viewer_page)
         self.viewer.zoomChanged.connect(self._on_zoom_changed)
+
+        self.search_bar.queryChanged.connect(self._run_search)
+        self.search_bar.nextRequested.connect(self.find_next)
+        self.search_bar.prevRequested.connect(self.find_prev)
+        self.search_bar.closed.connect(self.close_search)
+        self.search.hitsChanged.connect(self._on_hits)
+        self.search.progress.connect(lambda *_: self._update_search_status())
+        self.search.finished.connect(self._on_search_finished)
+        self.result_list.currentRowChanged.connect(self._on_result_row)
 
         geo = dialogs.settings().value("geometry")
         if geo is not None:
@@ -157,6 +202,9 @@ class MainWindow(QMainWindow):
         self.a_sanitize = A("보안 정리 (위험 요소 제거)…", self.sanitize, None,
                             "자바스크립트, 외부 프로그램 실행, 첨부 파일 등을 제거한 사본 저장")
 
+        self.a_find = A("찾기", self.show_search, QKeySequence.StandardKey.Find, "PDF에서 글자 찾기")
+        self.a_find_next = A("다음 찾기", self.find_next, "F3")
+        self.a_find_prev = A("이전 찾기", self.find_prev, "Shift+F3")
         self.a_zoom_in = A("확대", self.viewer.zoom_in, [QKeySequence.StandardKey.ZoomIn, "Ctrl+="])
         self.a_zoom_out = A("축소", self.viewer.zoom_out, QKeySequence.StandardKey.ZoomOut)
         self.a_fit = A("폭 맞춤", self.viewer.set_fit_width, "Ctrl+0", "창 너비에 맞추기")
@@ -173,6 +221,8 @@ class MainWindow(QMainWindow):
         tb.addActions([self.a_rot_l, self.a_rot_r, self.a_delete, self.a_undo, self.a_redo])
         tb.addSeparator()
         tb.addActions([self.a_compress, self.a_flatten, self.a_split, self.a_merge])
+        tb.addSeparator()
+        tb.addAction(self.a_find)
         tb.addSeparator()
         tb.addAction(self.a_zoom_out)
         # 글자 입력 칸을 두지 않는다 (Delete 키가 페이지 삭제와 겹치지 않도록)
@@ -208,6 +258,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_sanitize)
         m = mb.addMenu("보기(&V)")
+        m.addActions([self.a_find, self.a_find_next, self.a_find_prev])
+        m.addSeparator()
         m.addActions([self.a_zoom_in, self.a_zoom_out, self.a_fit])
         m = mb.addMenu("도움말(&H)")
         m.addAction(self.a_about)
@@ -253,7 +305,7 @@ class MainWindow(QMainWindow):
         has = self.doc is not None
         sel = bool(self.thumbs.selectedItems()) if has else False
         for a in (self.a_save_as, self.a_close, self.a_compress, self.a_flatten, self.a_split,
-                  self.a_sanitize,
+                  self.a_sanitize, self.a_find, self.a_find_next, self.a_find_prev,
                   self.a_zoom_in, self.a_zoom_out, self.a_fit, self.a_select_all):
             a.setEnabled(has)
         self.a_save.setEnabled(has and self.modified)
@@ -359,6 +411,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.viewer.set_fit_width)
         self._update_title()
         self._update_actions()
+        self._restart_search()
 
     def close_document(self):
         if not self._confirm_discard():
@@ -375,6 +428,7 @@ class MainWindow(QMainWindow):
         self.pages = []
         self._undo.clear()
         self._redo.clear()
+        self.close_search()
         self.thumbs.set_document(None)
         self.viewer.set_document(None, [])
         self.stack.setCurrentIndex(0)
@@ -494,6 +548,7 @@ class MainWindow(QMainWindow):
         self.viewer.set_pages(pages)
         self._update_title()
         self._update_actions()
+        self._restart_search()  # 순서/회전/삭제가 바뀌면 결과 위치도 바뀐다
 
     def rotate(self, delta: int):
         rows = self.thumbs.selected_rows()
@@ -851,6 +906,134 @@ class MainWindow(QMainWindow):
             f"일반 웹 링크, 책갈피, 양식 입력값은 유지됩니다.\n\n{path}",
             path, path.parent, self._open_result,
         )
+
+    # ================================================================== 찾기
+    def show_search(self):
+        if self.doc is None:
+            return
+        self.search_bar.show()
+        self.search_bar.focus()
+        text = self.search_bar.edit.text()
+        if text.strip() and not self.search.query:
+            self._run_search(text)
+
+    def close_search(self):
+        self.search.clear()
+        self._cur_hit = None
+        self.viewer.set_highlights([])
+        self.viewer.set_current_hit(None)
+        self._rebuild_results()
+        self.search_bar.set_status("")
+        self.search_bar.hide()
+        if self.doc is not None:
+            self.viewer.setFocus()
+
+    def _run_search(self, text: str):
+        self._cur_hit = None
+        self.viewer.set_current_hit(None)
+        if self.doc is None:
+            return
+        self._search_start = max(0, self.viewer.current_page())
+        self.search.start(self.doc, self.pages, text, self._search_start)
+
+    def _restart_search(self):
+        if self.search_bar.isVisible() and self.search.query:
+            self._run_search(self.search.query)
+
+    def _on_hits(self):
+        hits = self.search.hits
+        self.viewer.set_highlights(hits)
+        if self._cur_hit is None and hits:
+            # 지금 보고 있는 페이지 이후의 첫 결과부터 보여준다
+            first = next((h for h in hits if h.row >= self._search_start), hits[0])
+            self._select_hit(first)
+        self._update_search_status()
+        self._results_timer.start()
+
+    def _on_search_finished(self):
+        self._update_search_status()
+        self._rebuild_results()
+
+    def _update_search_status(self):
+        s = self.search
+        if not s.query:
+            self.search_bar.set_status("")
+            return
+        n = len(s.hits)
+        if self._cur_hit is not None and self._cur_hit in s.hits:
+            text = f"{s.hits.index(self._cur_hit) + 1} / {n}건"
+        elif n:
+            text = f"{n}건"
+        elif s.running:
+            text = "검색 중…"
+        elif s.has_text:
+            text = "결과 없음"
+        else:
+            text = "글자 정보가 없는 PDF (스캔본·이미지)"
+        if s.running:
+            text += f"  ({s.searched}/{s.total}쪽 검색)"
+        self.search_bar.set_status(text)
+
+    def _select_hit(self, hit: Optional[TextHit]):
+        self._cur_hit = hit
+        self.viewer.set_current_hit(hit)
+        if hit is not None and hit in self.search.hits:
+            i = self.search.hits.index(hit)
+            if i < self.result_list.count():
+                self.result_list.blockSignals(True)
+                self.result_list.setCurrentRow(i)
+                self.result_list.blockSignals(False)
+        self._update_search_status()
+
+    def _step_hit(self, delta: int):
+        if self.search_bar.flush():
+            return  # 입력 중이던 검색어로 새로 검색 시작
+        hits = self.search.hits
+        if not hits:
+            if self.doc is not None and not self.search_bar.isVisible():
+                self.show_search()
+            return
+        if self._cur_hit in hits:
+            i = (hits.index(self._cur_hit) + delta) % len(hits)
+        else:
+            i = 0 if delta > 0 else len(hits) - 1
+        self._select_hit(hits[i])
+
+    def find_next(self):
+        self._step_hit(1)
+
+    def find_prev(self):
+        self._step_hit(-1)
+
+    def _rebuild_results(self):
+        self._results_timer.stop()
+        hits = self.search.hits
+        self.result_list.blockSignals(True)
+        self.result_list.clear()
+        for i, h in enumerate(hits[:MAX_RESULT_ITEMS]):
+            item = QListWidgetItem(f"{h.row + 1}쪽   {h.marked_context}")
+            item.setData(HIT_ROLE, i)
+            item.setToolTip(h.context)
+            self.result_list.addItem(item)
+        if len(hits) > MAX_RESULT_ITEMS:
+            more = QListWidgetItem(f"… 외 {len(hits) - MAX_RESULT_ITEMS}건 (F3으로 계속 이동)")
+            more.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.result_list.addItem(more)
+        if self._cur_hit in hits:
+            i = hits.index(self._cur_hit)
+            if i < MAX_RESULT_ITEMS:
+                self.result_list.setCurrentRow(i)
+        self.result_list.blockSignals(False)
+        label = f"검색 결과 ({len(hits)})" if self.search.query else "검색 결과"
+        self.side.setTabText(1, label)
+
+    def _on_result_row(self, row: int):
+        item = self.result_list.item(row)
+        if item is None:
+            return
+        i = item.data(HIT_ROLE)
+        if i is not None and i < len(self.search.hits):
+            self._select_hit(self.search.hits[i])
 
     # ================================================================== 보기
     def _on_viewer_page(self, idx: int):

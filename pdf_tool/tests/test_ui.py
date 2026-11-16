@@ -374,3 +374,109 @@ def test_huge_page_render_is_capped(app, win, tmp_path):
     # 화면 표시 크기도 제한된다 (Qt가 거대한 확대 이미지를 만들지 않도록)
     assert label.width() * label.height() <= MAX_RENDER_PIXELS * 1.01
     assert not label.hasScaledContents()
+
+
+# ---------------------------------------------------------------------------
+# 찾기
+# ---------------------------------------------------------------------------
+def _search_pdf(tmp_path, pages=4):
+    d = pymupdf.open()
+    for i in range(pages):
+        d.new_page().insert_htmlbox(
+            pymupdf.Rect(50, 50, 545, 790),
+            f"<h2>제 {i + 1}장</h2><p>금리 분석 문단 {i + 1}. 국내 금리 동향.</p>",
+        )
+    path = tmp_path / "search.pdf"
+    d.save(path)
+    return path
+
+
+def _search(app, win, text):
+    win.show_search()
+    win.search_bar.edit.setText(text)
+    win.search_bar.flush()
+    assert _wait_until(lambda: not win.search.running and win.search.query == text)
+    _process(app)
+
+
+def test_find_highlights_and_navigates(app, win, tmp_path):
+    win.open_file(_search_pdf(tmp_path))
+    assert not win.search_bar.isVisible()
+    win.a_find.trigger()  # Ctrl+F
+    assert win.search_bar.isVisible()
+    _search(app, win, "금리")
+    hits = win.search.hits
+    assert len(hits) == 8  # 페이지마다 2번
+    assert win._cur_hit == hits[0]
+    assert win.search_bar.status.text() == "1 / 8건"
+    # 모든 결과가 페이지 위에 강조 표시됨
+    assert sum(len(l.marks) for l in win.viewer._labels) == 8
+    assert win.viewer._labels[0].current_marks
+    # 결과 목록 탭
+    assert win.result_list.count() == 8
+    assert win.side.tabText(1) == "검색 결과 (8)"
+    assert win.result_list.item(2).text().startswith("2쪽")
+    # 다음/이전 (끝에서 처음으로 돌아감)
+    win.find_next()
+    assert win._cur_hit == hits[1]
+    win.find_prev()
+    win.find_prev()
+    assert win._cur_hit == hits[-1]
+    assert win.search_bar.status.text() == "8 / 8건"
+    # 결과 목록 클릭
+    win.result_list.setCurrentRow(5)
+    assert win._cur_hit == hits[5]
+    assert win.viewer._labels[hits[5].row].current_marks
+    # 닫기 (Esc)
+    win.search_bar.edit.escapePressed.emit()
+    assert not win.search_bar.isVisible()
+    assert all(not l.marks and not l.current_marks for l in win.viewer._labels)
+    assert win.result_list.count() == 0
+
+
+def test_find_no_result_and_image_pdf(app, win, tmp_path):
+    win.open_file(_search_pdf(tmp_path))
+    _search(app, win, "없는단어")
+    assert win.search_bar.status.text() == "결과 없음"
+    flat = tmp_path / "flat.pdf"
+    flat.write_bytes(main_window.core.flatten_document(win.doc, "small"))
+    win.open_file(flat)
+    _search(app, win, "금리")
+    assert "글자 정보가 없는" in win.search_bar.status.text()
+
+
+def test_find_reruns_after_page_edit(app, win, tmp_path):
+    win.open_file(_search_pdf(tmp_path))
+    _search(app, win, "제 3장")
+    assert [h.row for h in win.search.hits] == [2]
+    win.thumbs.select_rows([0])
+    win.delete_pages()
+    assert _wait_until(lambda: not win.search.running)
+    assert [h.row for h in win.search.hits] == [1]  # 페이지가 하나 앞당겨짐
+    assert win.viewer._labels[1].marks
+
+
+def test_find_starts_from_current_page(app, win, tmp_path):
+    win.open_file(_search_pdf(tmp_path, pages=6))
+    assert _wait_until(lambda: win.viewer._labels[0].rendered_zoom is not None)
+    win.viewer.go_to_page(4)
+    assert _wait_until(lambda: win.viewer.current_page() == 4)
+    _search(app, win, "금리")
+    assert win._cur_hit.row == 4
+
+
+def test_delete_key_in_search_box_does_not_delete_pages(app, win, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    win.open_file(_search_pdf(tmp_path))
+    win.activateWindow()
+    win.show_search()
+    win.search_bar.edit.setText("금리")
+    win.search_bar.edit.setCursorPosition(0)
+    win.thumbs.select_rows([0])
+    win.search_bar.edit.setFocus()
+    QTest.keyClick(win.search_bar.edit, Qt.Key.Key_Delete)
+    _process(app)
+    assert len(win.pages) == 4
+    assert win.search_bar.edit.text() == "리"

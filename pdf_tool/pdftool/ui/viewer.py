@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Optional, Sequence
 
 import pymupdf
-from PySide6.QtCore import QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPalette, QPixmap
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from ..core import PageRef
+from ..search import TextHit
 from .render import capped_scale, page_size, render_page
 
 ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0]
@@ -24,6 +25,36 @@ class _PageLabel(QLabel):
         # 테두리를 두면 내용 영역이 줄어 이미지가 잘리므로 흰 배경만 둔다
         self.setStyleSheet("background: white;")
         self.rendered_zoom: Optional[float] = None
+        self.scale = 1.0  # 포인트 → 화면 픽셀 배율
+        self.marks: list = []  # 검색 결과 위치 (화면 기준 포인트 좌표)
+        self.current_marks: list = []  # 지금 선택된 검색 결과
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self.marks and not self.current_marks:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(_MARK)
+        for r in self.marks:
+            p.drawRect(self._to_px(r))
+        if self.current_marks:
+            p.setBrush(_CURRENT)
+            p.setPen(QPen(_CURRENT_EDGE, 2))
+            for r in self.current_marks:
+                p.drawRect(self._to_px(r).adjusted(-1, -1, 1, 1))
+        p.end()
+
+    def _to_px(self, r) -> QRectF:
+        z = self.scale
+        return QRectF(r[0] * z, r[1] * z, (r[2] - r[0]) * z, (r[3] - r[1]) * z)
+
+
+# 검색 강조 색 (글자가 보이도록 반투명)
+_MARK = QColor(255, 214, 0, 90)
+_CURRENT = QColor(255, 140, 0, 110)
+_CURRENT_EDGE = QColor(230, 81, 0)
 
 
 class PageViewer(QScrollArea):
@@ -99,6 +130,45 @@ class PageViewer(QScrollArea):
             self._current = -1
         self._render_timer.start()
 
+    def set_highlights(self, hits: Sequence[TextHit]) -> None:
+        """검색 결과 전체를 노란색으로 표시한다 (빈 목록이면 지움)."""
+        by_row: dict[int, list] = {}
+        for h in hits:
+            by_row.setdefault(h.row, []).extend(h.rects)
+        for row, label in enumerate(self._labels):
+            marks = by_row.get(row, [])
+            if marks or label.marks:
+                label.marks = marks
+                label.update()
+
+    def set_current_hit(self, hit: Optional[TextHit]) -> None:
+        """선택된 검색 결과를 주황색으로 표시하고, 그 위치로 화면을 옮긴다."""
+        for label in self._labels:
+            if label.current_marks:
+                label.current_marks = []
+                label.update()
+        if hit is None or not 0 <= hit.row < len(self._labels):
+            return
+        label = self._labels[hit.row]
+        label.current_marks = list(hit.rects)
+        label.update()
+
+        def scroll():
+            r = label._to_px(hit.rect)
+            vbar, hbar = self.verticalScrollBar(), self.horizontalScrollBar()
+            top = label.y() + int(r.top())
+            # 이미 화면 안쪽(위아래 여백 제외)에 보이면 움직이지 않는다
+            view_h = self.viewport().height()
+            if not (vbar.value() + 40 <= top <= vbar.value() + view_h - 60):
+                vbar.setValue(max(0, top - view_h // 3))
+            left = label.x() + int(r.left())
+            view_w = self.viewport().width()
+            if not (hbar.value() <= left <= hbar.value() + view_w - int(r.width()) - 20):
+                hbar.setValue(max(0, left - view_w // 3))
+            self._set_current(hit.row)
+
+        QTimer.singleShot(0, scroll)
+
     def go_to_page(self, index: int) -> None:
         if 0 <= index < len(self._labels):
             # 레이아웃이 아직 계산되지 않았을 수 있으므로 한 박자 늦게 이동
@@ -164,6 +234,7 @@ class PageViewer(QScrollArea):
     def _apply_sizes(self) -> None:
         for label, ref in zip(self._labels, self._pages):
             label.setFixedSize(self._label_size(ref))
+            label.scale = self._page_zoom(ref)
             if label.rendered_zoom is not None and abs(label.rendered_zoom - self._zoom) > 1e-6:
                 # 크기만 맞추고, 다시 그리기 전까지 기존 이미지를 늘려서 표시
                 label.setScaledContents(True)
