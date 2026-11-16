@@ -128,7 +128,7 @@ PDF 엔진 PyMuPDF는 AGPL 라이선스입니다. 개인 사용에는 문제가 
 
 ### 설치 용량
 
-설치 후 약 110MB입니다. Python + Qt 로 만든 프로그램으로는 보통 크기입니다
+설치 후 약 100MB입니다. Python + Qt 로 만든 프로그램으로는 보통 크기입니다
 (PDF 엔진 MuPDF 약 40MB, 화면 Qt 약 40MB, Python 약 15MB, 그 외).
-쓰지 않는 부분(OpenGL 20MB, Qt Quick/QML, PyMuPDF AI 모델, Pillow AVIF/WebP 코덱 등)은 빌드에서 뺐습니다.
+쓰지 않는 부분(OpenGL 20MB, Qt Quick/QML, PyMuPDF AI 모델, Pillow AVIF/WebP 코덱, 인터넷용 OpenSSL 등)은 빌드에서 뺐습니다.
 GitHub 빌드 로그의 '실행 파일 자체 점검' 단계에서 파일별 용량을 볼 수 있습니다.

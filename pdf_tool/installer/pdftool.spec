@@ -19,6 +19,9 @@ a = Analysis(
         "PIL._imagingft", "PIL.ImageFont", "PIL.ImageDraw", "PIL._imagingcms", "PIL.ImageCms",
         "PIL._imagingtk", "PIL.ImageTk", "PIL.ImageQt", "PIL._imagingmath", "PIL.ImageMath",
         "PIL._imagingmorph", "PIL.ImageMorph",
+        # 인터넷에 접속하지 않으므로 OpenSSL(libcrypto/libssl 약 7MB)과 네트워크 모듈은 넣지 않는다.
+        # hashlib 은 Python 내장 구현으로 동작한다. (공격 표면도 줄어든다)
+        "ssl", "_ssl", "_hashlib", "http", "urllib.request", "ftplib", "smtplib", "xmlrpc",
         # 쓰지 않는 Qt 모듈
         "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtPdf",
         "PySide6.QtOpenGL", "PySide6.QtSql", "PySide6.QtSvg", "PySide6.QtDBus",

@@ -74,6 +74,21 @@ def selftest() -> int:
         assert pymupdf.open(stream=merged, filetype="pdf").page_count == 4
         parts = core.split_document(d, core.chunk_groups(2, 1), tmp, "part")
         assert len(parts) == 2
+
+        # 찾기 / 글자 선택
+        from pdftool import search, security, textlayer
+
+        assert len(search.search_document(d, core.initial_pages(d), "한글 텍스트")) == 40
+        layer = textlayer.build_layer(d, core.PageRef(0))
+        assert "테스트" in layer.selected_text(*layer.all_range())
+
+        # 암호 PDF (암호 유지, 복사 권한) - 내장 hashlib/secrets 로 동작하는지
+        enc = d.tobytes(encryption=pymupdf.PDF_ENCRYPT_AES_256, user_pw="u", owner_pw="o",
+                        permissions=pymupdf.PDF_PERM_PRINT)
+        ed = core.open_pdf_bytes(enc, "u")
+        prot = security.detect_protection(ed, "u")
+        assert pymupdf.open(stream=security.protect(ed.tobytes(), prot), filetype="pdf").needs_pass
+        assert not security.copy_allowed(ed, "u")
         window.close()
     print("SELFTEST OK")
     return 0
