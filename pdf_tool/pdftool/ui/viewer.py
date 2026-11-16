@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Optional, Sequence
 
 import pymupdf
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from ..core import PageRef
 from ..search import TextHit
+from ..textlayer import PageTextLayer, TooManyChars, build_layer
 from .render import capped_scale, page_size, render_page
 
 ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0]
@@ -28,14 +30,20 @@ class _PageLabel(QLabel):
         self.scale = 1.0  # 포인트 → 화면 픽셀 배율
         self.marks: list = []  # 검색 결과 위치 (화면 기준 포인트 좌표)
         self.current_marks: list = []  # 지금 선택된 검색 결과
+        self.selection: list = []  # 드래그로 선택한 글자 영역
+        self.setCursor(Qt.CursorShape.IBeamCursor)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
-        if not self.marks and not self.current_marks:
+        if not self.marks and not self.current_marks and not self.selection:
             return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
+        if self.selection:
+            p.setBrush(_SELECT)
+            for r in self.selection:
+                p.drawRect(self._to_px(r))
         p.setBrush(_MARK)
         for r in self.marks:
             p.drawRect(self._to_px(r))
@@ -55,11 +63,18 @@ class _PageLabel(QLabel):
 _MARK = QColor(255, 214, 0, 90)
 _CURRENT = QColor(255, 140, 0, 110)
 _CURRENT_EDGE = QColor(230, 81, 0)
+# 글자 선택 색
+_SELECT = QColor(0, 120, 215, 80)
+# 글자 위치 정보를 기억해 둘 최대 페이지 수 (메모리 제한)
+_LAYER_CACHE = 30
 
 
 class PageViewer(QScrollArea):
     currentPageChanged = Signal(int)  # 현재 보이는 페이지 (0부터)
     zoomChanged = Signal(float)
+    selectionChanged = Signal(bool)  # 선택한 글자가 있는지
+    message = Signal(str)  # 상태 표시줄 안내
+    pageContextMenu = Signal(QPoint, int)  # (화면 좌표, 페이지 줄 번호) 오른쪽 클릭
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -84,6 +99,18 @@ class PageViewer(QScrollArea):
         self._zoom = 1.0
         self._fit_width = True
         self._current = -1
+
+        # 글자 선택
+        self._copy_allowed = True
+        self._layers: OrderedDict[int, Optional[PageTextLayer]] = OrderedDict()
+        self._sel_row: Optional[int] = None
+        self._sel_anchor = 0
+        self._sel_caret = 0
+        self._dragging = False
+        self._last_drag = QPoint()
+        self._autoscroll = QTimer(self)
+        self._autoscroll.setInterval(30)
+        self._autoscroll.timeout.connect(self._on_autoscroll)
 
         self._render_timer = QTimer(self)
         self._render_timer.setSingleShot(True)
@@ -112,6 +139,8 @@ class PageViewer(QScrollArea):
         """페이지 목록이 바뀌었을 때 (순서/회전/삭제)."""
         old_scroll = self.verticalScrollBar().value()
         self._pages = list(pages)
+        self._layers.clear()
+        self.clear_selection()
         for label in self._labels:
             self._layout.removeWidget(label)
             label.deleteLater()
@@ -120,6 +149,7 @@ class PageViewer(QScrollArea):
             return
         for _ in self._pages:
             label = _PageLabel(self._container)
+            label.installEventFilter(self)
             self._layout.addWidget(label, 0, Qt.AlignmentFlag.AlignHCenter)
             self._labels.append(label)
         self._apply_sizes()
@@ -130,6 +160,165 @@ class PageViewer(QScrollArea):
             self._current = -1
         self._render_timer.start()
 
+    # ------------------------------------------------------------------ 글자 선택
+    def set_copy_allowed(self, allowed: bool) -> None:
+        """PDF 작성자가 복사를 금지한 문서면 False (선택 자체를 막는다)."""
+        self._copy_allowed = allowed
+        if not allowed:
+            self.clear_selection()
+
+    def has_selection(self) -> bool:
+        return self._sel_row is not None and self._sel_anchor != self._sel_caret
+
+    def selected_text(self) -> str:
+        if not self.has_selection():
+            return ""
+        layer = self._layers.get(self._sel_row)
+        if layer is None:
+            return ""
+        return layer.selected_text(self._sel_anchor, self._sel_caret)
+
+    def clear_selection(self) -> None:
+        had = self.has_selection()
+        if self._sel_row is not None and 0 <= self._sel_row < len(self._labels):
+            label = self._labels[self._sel_row]
+            label.selection = []
+            label.update()
+        self._sel_row = None
+        self._sel_anchor = self._sel_caret = 0
+        self._dragging = False
+        self._autoscroll.stop()
+        if had:
+            self.selectionChanged.emit(False)
+
+    def select_all_on_page(self, row: int) -> bool:
+        layer = self._layer(row)
+        if layer is None:
+            return False
+        a, b = layer.all_range()
+        self._set_selection(row, a, b)
+        return self.has_selection()
+
+    def _layer(self, row: int) -> Optional[PageTextLayer]:
+        """페이지 글자 위치 정보 (필요할 때 만들고 최근 것만 기억)."""
+        if not self._copy_allowed:
+            self.message.emit("이 PDF는 작성자가 글자 복사를 금지해 두었습니다.")
+            return None
+        if row in self._layers:
+            self._layers.move_to_end(row)
+            layer = self._layers[row]
+        else:
+            try:
+                layer = build_layer(self._doc, self._pages[row])
+            except TooManyChars:
+                self.message.emit("글자가 너무 많은 페이지라 선택할 수 없습니다.")
+                layer = None
+            except RuntimeError:
+                layer = None
+            self._layers[row] = layer
+            while len(self._layers) > _LAYER_CACHE:
+                self._layers.popitem(last=False)
+        if layer is not None and not layer.lines:
+            self.message.emit("이 페이지에는 선택할 수 있는 글자가 없습니다 (스캔본·이미지).")
+            return None
+        return layer
+
+    def _set_selection(self, row: int, anchor: int, caret: int) -> None:
+        if self._sel_row is not None and self._sel_row != row:
+            old = self._labels[self._sel_row]
+            old.selection = []
+            old.update()
+        had = self.has_selection()
+        self._sel_row, self._sel_anchor, self._sel_caret = row, anchor, caret
+        layer = self._layers.get(row)
+        label = self._labels[row]
+        label.selection = layer.selection_rects(anchor, caret) if layer else []
+        label.update()
+        if had != self.has_selection():
+            self.selectionChanged.emit(self.has_selection())
+
+    def _point_in(self, label: "_PageLabel", pos) -> tuple[float, float]:
+        """라벨 안 픽셀 위치 → 페이지 좌표(포인트)."""
+        z = label.scale or 1.0
+        return pos.x() / z, pos.y() / z
+
+    def eventFilter(self, obj, event) -> bool:
+        if not isinstance(obj, _PageLabel) or obj not in self._labels:
+            return super().eventFilter(obj, event)
+        et = event.type()
+        row = self._labels.index(obj)
+        if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            layer = self._layer(row)
+            if layer is None:
+                self.clear_selection()
+                return True
+            caret = layer.caret_at(*self._point_in(obj, event.position()))
+            self._set_selection(row, caret, caret)
+            self._dragging = True
+            self._last_drag = obj.mapToGlobal(event.position().toPoint())
+            return True
+        if et == QEvent.Type.MouseMove and self._dragging:
+            self._last_drag = obj.mapToGlobal(event.position().toPoint())
+            self._drag_to(self._last_drag)
+            self._update_autoscroll()
+            return True
+        if et == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._autoscroll.stop()
+            if not self.has_selection():
+                self.clear_selection()
+            return True
+        if et == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+            layer = self._layer(row)
+            if layer is not None:
+                word = layer.word_at(*self._point_in(obj, event.position()))
+                if word:
+                    self._set_selection(row, *word)
+            self._dragging = False
+            return True
+        if et == QEvent.Type.ContextMenu:
+            self.pageContextMenu.emit(event.globalPos(), row)
+            return True
+        return super().eventFilter(obj, event)
+
+    def _drag_to(self, global_pos: QPoint) -> None:
+        """드래그 중: 마우스가 다른 페이지/바깥으로 나가도 시작한 페이지 기준으로 선택을 늘린다."""
+        if self._sel_row is None:
+            return
+        label = self._labels[self._sel_row]
+        layer = self._layers.get(self._sel_row)
+        if layer is None:
+            return
+        caret = layer.caret_at(*self._point_in(label, label.mapFromGlobal(global_pos)))
+        if caret is not None and caret != self._sel_caret:
+            self._set_selection(self._sel_row, self._sel_anchor, caret)
+
+    def _update_autoscroll(self) -> None:
+        y = self.viewport().mapFromGlobal(self._last_drag).y()
+        if y < 0 or y > self.viewport().height():
+            if not self._autoscroll.isActive():
+                self._autoscroll.start()
+        else:
+            self._autoscroll.stop()
+
+    def _on_autoscroll(self) -> None:
+        """드래그하다 화면 위/아래 밖으로 나가면 자동으로 스크롤한다."""
+        if not self._dragging:
+            self._autoscroll.stop()
+            return
+        y = self.viewport().mapFromGlobal(self._last_drag).y()
+        h = self.viewport().height()
+        bar = self.verticalScrollBar()
+        if y < 0:
+            bar.setValue(bar.value() - max(4, min(40, -y // 2)))
+        elif y > h:
+            bar.setValue(bar.value() + max(4, min(40, (y - h) // 2)))
+        else:
+            self._autoscroll.stop()
+        self._drag_to(self._last_drag)
+
+    # ------------------------------------------------------------------ 검색 강조
     def set_highlights(self, hits: Sequence[TextHit]) -> None:
         """검색 결과 전체를 노란색으로 표시한다 (빈 목록이면 지움)."""
         by_row: dict[int, list] = {}

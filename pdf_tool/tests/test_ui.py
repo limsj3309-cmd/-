@@ -544,3 +544,137 @@ def test_search_stops_at_total_limit(app, win, tmp_path, monkeypatch):
     assert len(win.search.hits) == 3
     assert win.search.truncated
     assert "일부만" in win.search_bar.status.text()
+
+
+
+# ---------------------------------------------------------------------------
+# 드래그해서 글자 복사
+# ---------------------------------------------------------------------------
+def _text_pdf_file(tmp_path, name="sel.pdf", **enc):
+    d = pymupdf.open()
+    d.new_page().insert_htmlbox(
+        pymupdf.Rect(50, 50, 545, 790),
+        "<p>은행 채권 금리 분석 보고서입니다.</p><p>둘째 문단 Market Rate 상승.</p>",
+    )
+    path = tmp_path / name
+    d.save(path, **enc)
+    return path
+
+
+def _px(label, x, y):
+    from PySide6.QtCore import QPoint
+
+    return QPoint(round(x * label.scale), round(y * label.scale))
+
+
+def _drag(app, label, p0, p1):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    QTest.mousePress(label, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p0)
+    QTest.mouseMove(label, p1)
+    QTest.mouseRelease(label, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p1)
+    _process(app)
+
+
+def _ready(win):
+    assert _wait_until(lambda: win.viewer._labels and win.viewer._labels[0].rendered_zoom is not None)
+
+
+def test_drag_select_and_copy(app, win, tmp_path):
+    from PySide6.QtGui import QGuiApplication
+
+    win.open_file(_text_pdf_file(tmp_path))
+    _ready(win)
+    from pdftool import search as S
+
+    r = S.search_document(win.doc, win.pages, "채권 금리")[0].rect
+    label = win.viewer._labels[0]
+    mid_y = (r[1] + r[3]) / 2
+    _drag(app, label, _px(label, r[0] + 0.5, mid_y), _px(label, r[2] - 0.5, mid_y))
+    assert win.viewer.has_selection()
+    assert win.viewer.selected_text() == "채권 금리"
+    assert label.selection  # 파란색 표시
+    assert win.a_copy.isEnabled()
+    QGuiApplication.clipboard().clear()
+    win.a_copy.trigger()  # Ctrl+C
+    assert QGuiApplication.clipboard().text() == "채권 금리"
+
+
+def test_double_click_selects_word(app, win, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from pdftool import search as S
+
+    win.open_file(_text_pdf_file(tmp_path))
+    _ready(win)
+    r = S.search_document(win.doc, win.pages, "보고서")[0].rect
+    label = win.viewer._labels[0]
+    QTest.mouseDClick(label, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                      _px(label, (r[0] + r[2]) / 2, (r[1] + r[3]) / 2))
+    _process(app)
+    assert win.viewer.selected_text() == "보고서입니다."
+
+
+def test_click_without_drag_clears_selection(app, win, tmp_path):
+    win.open_file(_text_pdf_file(tmp_path))
+    _ready(win)
+    assert win.viewer.select_all_on_page(0)
+    label = win.viewer._labels[0]
+    p = _px(label, 100, 400)
+    _drag(app, label, p, p)
+    assert not win.viewer.has_selection()
+    assert not win.a_copy.isEnabled()
+
+
+def test_select_page_text_and_cleared_on_edit(app, win, tmp_path):
+    win.open_file(_text_pdf_file(tmp_path))
+    _ready(win)
+    win.select_page_text(0)
+    text = win.viewer.selected_text()
+    assert "은행 채권" in text and "\n" in text and "Market Rate" in text
+    win.thumbs.select_rows([0])
+    win.rotate(90)  # 페이지가 바뀌면 선택 해제
+    assert not win.viewer.has_selection()
+
+
+def test_copy_forbidden_pdf_blocks_selection(app, win, tmp_path, monkeypatch):
+    path = _text_pdf_file(
+        tmp_path, "nocopy.pdf", encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        user_pw="pw", owner_pw="owner", permissions=pymupdf.PDF_PERM_PRINT,
+    )
+    monkeypatch.setattr(main_window.QInputDialog, "getText", staticmethod(lambda *a, **k: ("pw", True)))
+    win.open_file(path)
+    _ready(win)
+    messages = []
+    win.viewer.message.connect(messages.append)
+    assert not win.viewer.select_all_on_page(0)
+    label = win.viewer._labels[0]
+    _drag(app, label, _px(label, 60, 60), _px(label, 300, 70))
+    assert not win.viewer.has_selection()
+    assert any("복사를 금지" in m for m in messages)
+
+
+def test_copied_text_is_cleaned(app, win, tmp_path, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    win.open_file(_text_pdf_file(tmp_path))
+    monkeypatch.setattr(win.viewer, "selected_text", lambda: "a\x1b[2Jb\x00c")
+    QGuiApplication.clipboard().clear()
+    win.copy_selection()
+    assert QGuiApplication.clipboard().text() == "a[2Jbc"
+
+
+def test_image_pdf_selection_message(app, win, tmp_path):
+    flat = tmp_path / "flat.pdf"
+    src = pymupdf.open(_text_pdf_file(tmp_path))
+    flat.write_bytes(main_window.core.flatten_document(src, "small"))
+    win.open_file(flat)
+    _ready(win)
+    messages = []
+    win.viewer.message.connect(messages.append)
+    label = win.viewer._labels[0]
+    _drag(app, label, _px(label, 60, 60), _px(label, 300, 70))
+    assert not win.viewer.has_selection()
+    assert any("선택할 수 있는 글자가 없습니다" in m for m in messages)

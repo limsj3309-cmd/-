@@ -7,7 +7,7 @@ from typing import Optional
 
 import pymupdf
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence, QPainter, QPixmap
+from PySide6.QtGui import QAction, QColor, QFont, QGuiApplication, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QPushButton,
@@ -146,6 +146,9 @@ class MainWindow(QMainWindow):
         self.thumbs.customContextMenuRequested.connect(self._thumb_menu)
         self.viewer.currentPageChanged.connect(self._on_viewer_page)
         self.viewer.zoomChanged.connect(self._on_zoom_changed)
+        self.viewer.selectionChanged.connect(lambda _: self._update_actions())
+        self.viewer.message.connect(lambda text: self.statusBar().showMessage(text, 5000))
+        self.viewer.pageContextMenu.connect(self._page_menu)
 
         self.search_bar.queryChanged.connect(self._run_search)
         self.search_bar.nextRequested.connect(self.find_next)
@@ -203,6 +206,9 @@ class MainWindow(QMainWindow):
         self.a_sanitize = A("보안 정리 (위험 요소 제거)…", self.sanitize, None,
                             "자바스크립트, 외부 프로그램 실행, 첨부 파일 등을 제거한 사본 저장")
 
+        self.a_copy = A("복사", self.copy_selection, QKeySequence.StandardKey.Copy,
+                        "드래그해서 선택한 글자를 복사")
+        self.a_select_page_text = A("이 페이지 글자 모두 선택", self.select_page_text, None)
         self.a_find = A("찾기", self.show_search, QKeySequence.StandardKey.Find, "PDF에서 글자 찾기")
         self.a_find_next = A("다음 찾기", self.find_next, "F3")
         self.a_find_prev = A("이전 찾기", self.find_prev, "Shift+F3")
@@ -246,6 +252,10 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_close)
         m.addSeparator()
         m.addAction(self.a_quit)
+        m = mb.addMenu("편집(&E)")
+        m.addActions([self.a_copy, self.a_select_page_text])
+        m.addSeparator()
+        m.addActions([self.a_find, self.a_find_next, self.a_find_prev])
         m = mb.addMenu("페이지(&P)")
         m.addActions([self.a_rot_l, self.a_rot_r, self.a_delete])
         m.addSeparator()
@@ -307,11 +317,13 @@ class MainWindow(QMainWindow):
         sel = bool(self.thumbs.selectedItems()) if has else False
         for a in (self.a_save_as, self.a_close, self.a_compress, self.a_flatten, self.a_split,
                   self.a_sanitize, self.a_find, self.a_find_next, self.a_find_prev,
+                  self.a_select_page_text,
                   self.a_zoom_in, self.a_zoom_out, self.a_fit, self.a_select_all):
             a.setEnabled(has)
         self.a_save.setEnabled(has and self.modified)
         for a in (self.a_rot_l, self.a_rot_r, self.a_delete, self.a_up, self.a_down, self.a_extract):
             a.setEnabled(sel)
+        self.a_copy.setEnabled(has and self.viewer.has_selection())
         self.a_undo.setEnabled(bool(self._undo))
         self.a_redo.setEnabled(bool(self._redo))
         self.zoom_box.setEnabled(has)
@@ -395,6 +407,7 @@ class MainWindow(QMainWindow):
         self._use_protection = use_protection if self._protection is not None else None
         self._signed_warned = False
         self._risks = security.find_active_content(doc)
+        self.viewer.set_copy_allowed(security.copy_allowed(doc, password))
         if self._risks:
             self.btn_risk.setText(f"⚠ 위험 요소 {len(self._risks)}종 포함")
             self.btn_risk.setToolTip("\n".join(self._risks) + "\n\n클릭하면 자세히 보고 제거할 수 있습니다.")
@@ -907,6 +920,34 @@ class MainWindow(QMainWindow):
             f"일반 웹 링크, 책갈피, 양식 입력값은 유지됩니다.\n\n{path}",
             path, path.parent, self._open_result,
         )
+
+    # ================================================================== 글자 복사
+    def copy_selection(self):
+        text = security.clean_copied_text(self.viewer.selected_text())
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+        self.statusBar().showMessage(f"{len(text)}자를 복사했습니다.", 3000)
+
+    def select_page_text(self, row: Optional[int] = None):
+        if self.doc is None:
+            return
+        row = self.viewer.current_page() if row is None or row is False else row
+        if self.viewer.select_all_on_page(max(0, row)):
+            self.statusBar().showMessage(f"{max(0, row) + 1}쪽 글자를 모두 선택했습니다.", 3000)
+
+    def _page_menu(self, global_pos, row: int):
+        if self.doc is None:
+            return
+        menu = QMenu(self)
+        copy = menu.addAction("복사")
+        copy.setEnabled(self.viewer.has_selection())
+        copy.triggered.connect(self.copy_selection)
+        sel_all = menu.addAction("이 페이지 글자 모두 선택")
+        sel_all.triggered.connect(lambda: self.select_page_text(row))
+        menu.addSeparator()
+        menu.addAction(self.a_find)
+        menu.exec(global_pos)
 
     # ================================================================== 찾기
     def show_search(self):

@@ -13,6 +13,12 @@ a = Analysis(
         "matplotlib", "pandas", "scipy", "IPython", "jedi",
         # PyMuPDF 2.x 가 함께 설치하는 AI/레이아웃 분석용 패키지 (이 프로그램은 사용 안 함)
         "onnxruntime", "pymupdf4llm", "pymupdf_layout", "networkx", "psutil", "yaml", "tabulate",
+        # Pillow 는 페이지 이미지를 JPEG/PNG 로 저장하는 데만 쓴다. 나머지 코덱/기능은 빼서 약 10MB 절약
+        # (AVIF 7.5MB, 글꼴 그리기, WebP, 색 프로필, Tk/Qt 연동, 수식/모폴로지)
+        "PIL._avif", "PIL.AvifImagePlugin", "PIL._webp", "PIL.WebPImagePlugin",
+        "PIL._imagingft", "PIL.ImageFont", "PIL.ImageDraw", "PIL._imagingcms", "PIL.ImageCms",
+        "PIL._imagingtk", "PIL.ImageTk", "PIL.ImageQt", "PIL._imagingmath", "PIL.ImageMath",
+        "PIL._imagingmorph", "PIL.ImageMorph",
         # 쓰지 않는 Qt 모듈
         "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtPdf",
         "PySide6.QtOpenGL", "PySide6.QtSql", "PySide6.QtSvg", "PySide6.QtDBus",

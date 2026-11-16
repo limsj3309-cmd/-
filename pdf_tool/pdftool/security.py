@@ -223,3 +223,33 @@ def safe_filename(name: str, fallback: str = "문서", max_len: int = 120) -> st
     if name.split(".")[0].upper() in _WIN_RESERVED:
         name = "_" + name
     return name[:max_len].rstrip(" .") or fallback
+
+
+# ---------------------------------------------------------------------------
+# 글자 복사
+# ---------------------------------------------------------------------------
+def copy_allowed(doc: pymupdf.Document, password: Optional[str]) -> bool:
+    """PDF 작성자가 글자 복사를 허용했는지.
+
+    암호 PDF의 권한 설정에서 '복사 금지'면 False. 단, 소유자 암호로 연 경우는 허용.
+    """
+    meta = doc.metadata or {}
+    if not meta.get("encryption"):
+        return True
+    if doc.permissions & pymupdf.PDF_PERM_COPY:
+        return True
+    if password:
+        try:
+            return bool(doc.authenticate(password) & 4)
+        except Exception:
+            return False
+    return False
+
+
+# 줄바꿈/탭을 뺀 제어 문자. 붙여넣는 곳(터미널 등)에서 명령처럼 해석될 수 있어 지운다.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean_copied_text(text: str) -> str:
+    """클립보드에 넣기 전에 보이지 않는 제어 문자를 제거한다."""
+    return _CONTROL.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))

@@ -87,7 +87,14 @@ jobs:
           $p = Start-Process -FilePath "dist\PdfEditor\PdfEditor.exe" -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow
           if ($p.ExitCode -ne 0) { throw "selftest 실패 (exit $($p.ExitCode))" }
           "selftest OK"
-          "{0:N1} MB" -f ((Get-ChildItem dist\PdfEditor -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+          # 설치 용량 내역 (어떤 파일이 용량을 차지하는지)
+          $all = Get-ChildItem dist\PdfEditor -Recurse -File
+          "설치 후 총 용량: {0:N1} MB ({1}개 파일)" -f (($all | Measure-Object Length -Sum).Sum / 1MB), $all.Count
+          $root = (Resolve-Path dist\PdfEditor\_internal).Path
+          Get-ChildItem $root -Directory | ForEach-Object {
+            [pscustomobject]@{ MB = [math]::Round(((Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1); Name = $_.Name }
+          } | Sort-Object MB -Descending | Select-Object -First 8 | Format-Table -AutoSize | Out-String -Width 120
+          $all | Sort-Object Length -Descending | Select-Object -First 12 @{n="MB";e={[math]::Round($_.Length/1MB,1)}}, @{n="File";e={$_.FullName.Replace($root, "")}} | Format-Table -AutoSize | Out-String -Width 200
 
       - name: 설치 파일 만들기 (Inno Setup)
         id: inno
