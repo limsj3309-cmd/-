@@ -480,3 +480,67 @@ def test_delete_key_in_search_box_does_not_delete_pages(app, win, tmp_path):
     _process(app)
     assert len(win.pages) == 4
     assert win.search_bar.edit.text() == "리"
+
+
+
+# ---------------------------------------------------------------------------
+# 보안: 외부 글자의 HTML 해석 방지, 검색 결과 상한
+# ---------------------------------------------------------------------------
+EVIL = '<img src="file:///C:/Windows/win.ini" width=999><a href="https://evil.example">클릭</a>'
+
+
+def test_as_plain_html_never_renders_markup(app):
+    from PySide6.QtGui import QTextDocument
+
+    from pdftool.ui.safe_text import as_plain_html
+
+    for text in (EVIL, "줄1\n<b>굵게</b>", "&lt;b&gt; 그대로", "<!doctype html><script>x</script>"):
+        doc = QTextDocument()
+        doc.setHtml(as_plain_html(text))
+        assert doc.toPlainText() == text  # 글자 그대로 보임
+        assert "<img" not in doc.toHtml()  # 실제 이미지 태그가 만들어지지 않음 (&lt;img 로만 존재)
+
+
+def test_search_result_tooltip_is_escaped(app, win, tmp_path):
+    """PDF 안의 글자가 HTML 처럼 생겨도 툴팁에서 태그로 해석되지 않는다."""
+    from PySide6.QtGui import QTextDocument
+
+    d = pymupdf.open()
+    d.new_page().insert_text((40, 72), "price " + EVIL, fontsize=8)
+    path = tmp_path / "evil.pdf"
+    d.save(path)
+    win.open_file(path)
+    _search(app, win, "price")
+    assert win.result_list.count() == 1
+    tip = win.result_list.item(0).toolTip()
+    shown = QTextDocument()
+    shown.setHtml(tip)
+    assert "<img" in shown.toPlainText()  # 태그가 아니라 글자로 보임
+    assert win.search.hits[0].context == shown.toPlainText()
+
+
+def test_result_dialog_uses_plain_text(app, monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_exec(self):
+        seen["format"] = self.textFormat()
+        seen["text"] = self.text()
+        return 0
+
+    from PySide6.QtCore import Qt
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    dialogs.show_result(None, "제목", EVIL)
+    assert seen["format"] == Qt.TextFormat.PlainText
+    assert seen["text"] == EVIL
+
+
+def test_search_stops_at_total_limit(app, win, tmp_path, monkeypatch):
+    from pdftool.ui import search_panel
+
+    monkeypatch.setattr(search_panel, "MAX_TOTAL_HITS", 3)
+    win.open_file(_search_pdf(tmp_path))  # '금리' 8건
+    _search(app, win, "금리")
+    assert len(win.search.hits) == 3
+    assert win.search.truncated
+    assert "일부만" in win.search_bar.status.text()

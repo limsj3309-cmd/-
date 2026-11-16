@@ -22,11 +22,18 @@ import pymupdf
 
 from .core import PageRef
 
-# 한 페이지에서 찾는 최대 개수 (아주 흔한 글자로 검색했을 때 멈추지 않도록)
+# --- 자원 제한 (악의적으로 만든 PDF가 메모리/시간을 고갈시키지 못하도록) ---
+# 한 페이지에서 찾는 최대 개수
 MAX_HITS_PER_PAGE = 1000
+# 문서 전체에서 모으는 최대 개수 (넘으면 검색을 멈춘다)
+MAX_TOTAL_HITS = 5000
+# 이보다 글자가 많은 페이지는 글자별 위치 정보를 만들지 않고(메모리 수백 MB 사용)
+# PDF 엔진의 가벼운 검색으로 대신한다
+MAX_PAGE_CHARS = 200_000
 CONTEXT_CHARS = 20
 # 합자(ﬁ 등)는 낱글자로 풀어서 'fi' 로 찾을 수 있게 한다
 _FLAGS = (pymupdf.TEXTFLAGS_RAWDICT | pymupdf.TEXT_MEDIABOX_CLIP) & ~pymupdf.TEXT_PRESERVE_LIGATURES
+_PLAIN_FLAGS = (pymupdf.TEXTFLAGS_TEXT | pymupdf.TEXT_MEDIABOX_CLIP) & ~pymupdf.TEXT_PRESERVE_LIGATURES
 
 Rect4 = tuple[float, float, float, float]
 _BREAK = "\x00"  # 줄바꿈 표시 (검색 시 공백으로도, 아무것도 아닌 것으로도 맞음)
@@ -169,6 +176,39 @@ def _pattern(query: str) -> Optional[re.Pattern]:
     return re.compile("".join(parts))
 
 
+def _fold_plain(text: str) -> str:
+    """일반 텍스트를 _extract 와 같은 규칙(공백 정리, 줄바꿈 표시, 대소문자 무시)으로 바꾼다."""
+    out: list[str] = []
+    for c in text:
+        if c == "\n":
+            if out and out[-1] not in (" ", _BREAK):
+                out.append(_BREAK)
+        elif c.isspace():
+            if not out:
+                continue
+            if out[-1] == _BREAK:
+                out[-1] = " "
+            elif out[-1] != " ":
+                out.append(" ")
+        else:
+            out.append(_fold(c))
+    return "".join(out)
+
+
+def _search_large_page(page: pymupdf.Page, ref: PageRef, row: int, query: str) -> list[TextHit]:
+    """글자가 아주 많은 페이지: 위치 정보 없이 PDF 엔진 검색으로 대신 (줄바꿈에 걸친 문구는 못 찾음)."""
+    try:
+        rects = page.search_for(normalize_query(query))[:MAX_HITS_PER_PAGE]
+    except RuntimeError:
+        return []
+    hits = []
+    for r in rects:
+        v = view_rect(page, r, ref.rotation)
+        text = normalize_query(query)
+        hits.append(TextHit(row, ((v.x0, v.y0, v.x1, v.y1),), text, (0, len(text))))
+    return hits
+
+
 def search_page(doc: pymupdf.Document, ref: PageRef, row: int, query: str) -> list[TextHit]:
     """한 페이지에서 검색."""
     pattern = _pattern(query)
@@ -176,6 +216,13 @@ def search_page(doc: pymupdf.Document, ref: PageRef, row: int, query: str) -> li
         return []
     page = doc[ref.index]
     try:
+        # 1) 가벼운 일반 텍스트로 먼저 확인 → 없으면 무거운 글자별 추출을 하지 않는다
+        plain = page.get_text("text", flags=_PLAIN_FLAGS)
+        if not pattern.search(_fold_plain(plain)):
+            return []
+        # 2) 글자가 너무 많은 페이지는 메모리를 아끼는 방식으로
+        if len(plain) > MAX_PAGE_CHARS:
+            return _search_large_page(page, ref, row, query)
         pt = _extract(page)
     except RuntimeError:  # 손상된 페이지 등 MuPDF 오류는 그 페이지만 건너뜀
         return []

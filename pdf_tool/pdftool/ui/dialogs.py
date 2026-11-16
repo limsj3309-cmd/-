@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from .. import core
 from ..security import safe_filename
+from .safe_text import as_plain_html
 
 PATH_ROLE = Qt.ItemDataRole.UserRole
 
@@ -222,7 +223,7 @@ class SplitDialog(QDialog):
                 self.groups = [[i for g in groups for i in g]]
             self.single_output = mode == self.MODE_EXTRACT
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "입력 확인", str(exc))
+            QMessageBox.warning(self, "입력 확인", as_plain_html(exc))
             return
         if not self.out_dir() or not Path(self.out_dir()).is_dir():
             QMessageBox.warning(self, "입력 확인", "저장할 폴더를 선택하세요.")
@@ -247,7 +248,7 @@ class _FileList(QListWidget):
             if not p.lower().endswith(".pdf"):
                 continue
             item = QListWidgetItem(Path(p).name)
-            item.setToolTip(p)
+            item.setToolTip(as_plain_html(p))
             item.setData(PATH_ROLE, p)
             self.addItem(item)
 
@@ -360,6 +361,7 @@ def show_result(parent, title: str, text: str, file_path: Optional[Path] = None,
     box = QMessageBox(parent)
     box.setWindowTitle(title)
     box.setIcon(QMessageBox.Icon.Information)
+    box.setTextFormat(Qt.TextFormat.PlainText)  # 파일 이름 등이 HTML로 해석되지 않게
     box.setText(text)
     open_btn = folder_btn = None
     if file_path is not None and open_in_app is not None:

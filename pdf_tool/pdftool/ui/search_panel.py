@@ -15,7 +15,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QToolButton, QWidget
 
 from ..core import PageRef
-from ..search import TextHit, has_any_text, normalize_query, search_order, search_page
+from ..search import MAX_TOTAL_HITS, TextHit, has_any_text, normalize_query, search_order, search_page
 
 # 한 번에 최대 이 시간(초)만 검색하고 화면에 양보한다
 _SLICE_SECONDS = 0.03
@@ -34,6 +34,7 @@ class SearchController(QObject):
         self.query = ""
         self.running = False
         self.has_text = True
+        self.truncated = False  # 결과가 너무 많아 중간에 멈췄는지
         self._keys: list = []
         self._doc: Optional[pymupdf.Document] = None
         self._pages: list[PageRef] = []
@@ -50,6 +51,7 @@ class SearchController(QObject):
         self._keys = []
         self.query = normalize_query(query)
         self.has_text = True
+        self.truncated = False
         if not self.query or doc is None or not pages:
             self.hitsChanged.emit()
             self.finished.emit()
@@ -88,14 +90,19 @@ class SearchController(QObject):
             row = self._order[self._pos]
             self._pos += 1
             for h in search_page(self._doc, self._pages[row], row, self.query):
+                if len(self.hits) >= MAX_TOTAL_HITS:
+                    self.truncated = True  # 메모리 보호: 더 모으지 않고 검색 종료
+                    break
                 i = bisect.bisect(self._keys, h.sort_key)
                 self._keys.insert(i, h.sort_key)
                 self.hits.insert(i, h)
                 found = True
+            if self.truncated:
+                break
         if found:
             self.hitsChanged.emit()
         self.progress.emit(self._pos, len(self._order))
-        if self._pos >= len(self._order):
+        if self._pos >= len(self._order) or self.truncated:
             self._timer.stop()
             self.running = False
             if not self.hits:

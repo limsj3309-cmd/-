@@ -9,6 +9,7 @@ from PySide6.QtCore import QEventLoop, QObject, Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QMessageBox, QProgressDialog, QWidget
 
 from ..core import Cancelled, PdfToolError
+from .safe_text import as_plain_html
 
 
 class _Worker(QObject):
@@ -107,5 +108,5 @@ def run_with_progress(
     dialog.deleteLater()
 
     if bridge.status == "error":
-        QMessageBox.warning(parent, "오류", str(bridge.result))
+        QMessageBox.warning(parent, "오류", as_plain_html(bridge.result))
     return bridge.status == "ok", bridge.result

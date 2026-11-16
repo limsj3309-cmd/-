@@ -32,6 +32,7 @@ from .. import APP_NAME, __version__, core, security
 from ..core import PageRef
 from ..search import TextHit
 from . import dialogs
+from .safe_text import as_plain_html
 from .search_panel import SearchBar, SearchController
 from .thumbnails import ThumbnailList
 from .viewer import ZOOM_STEPS, PageViewer
@@ -345,7 +346,7 @@ class MainWindow(QMainWindow):
 
     def _ask_password(self, name: str, retry: bool) -> Optional[str]:
         msg = ("암호가 틀렸습니다. 다시 입력하세요." if retry else "암호로 보호된 PDF입니다.") + f"\n{name}"
-        pw, ok = QInputDialog.getText(self, "암호 입력", msg, QLineEdit.EchoMode.Password)
+        pw, ok = QInputDialog.getText(self, "암호 입력", as_plain_html(msg), QLineEdit.EchoMode.Password)
         return pw if ok else None
 
     def _open_with_password(self, path: Path) -> Optional[tuple[pymupdf.Document, Optional[str]]]:
@@ -361,7 +362,7 @@ class MainWindow(QMainWindow):
                     return None
                 retry = True
             except core.PdfToolError as exc:
-                QMessageBox.warning(self, "열기 실패", str(exc))
+                QMessageBox.warning(self, "열기 실패", as_plain_html(exc))
                 return None
 
     def open_dialog(self):
@@ -482,7 +483,7 @@ class MainWindow(QMainWindow):
             data = security.protect(self._current_bytes(), prot)
             core.write_file_atomic(data, path)
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "저장 실패", str(exc))
+            QMessageBox.warning(self, "저장 실패", as_plain_html(exc))
             return False
         cur = self.viewer.current_page()
         password = self._password if prot is not None else None
@@ -623,7 +624,7 @@ class MainWindow(QMainWindow):
         try:
             core.write_file_atomic(security.protect(core.to_bytes(doc), prot), path)
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "저장 실패", str(exc))
+            QMessageBox.warning(self, "저장 실패", as_plain_html(exc))
             return
         finally:
             doc.close()
@@ -670,7 +671,7 @@ class MainWindow(QMainWindow):
         try:
             core.write_file_atomic(data, path)
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "저장 실패", str(exc))
+            QMessageBox.warning(self, "저장 실패", as_plain_html(exc))
             return
         self._remember_dir(path)
         pct = (1 - after / before) * 100
@@ -709,7 +710,7 @@ class MainWindow(QMainWindow):
         try:
             core.write_file_atomic(data, path)
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "저장 실패", str(exc))
+            QMessageBox.warning(self, "저장 실패", as_plain_html(exc))
             return
         self._remember_dir(path)
         after = len(data)
@@ -895,7 +896,7 @@ class MainWindow(QMainWindow):
         try:
             core.write_file_atomic(data, path)
         except core.PdfToolError as exc:
-            QMessageBox.warning(self, "저장 실패", str(exc))
+            QMessageBox.warning(self, "저장 실패", as_plain_html(exc))
             return
         self._remember_dir(path)
         removed = "\n· ".join(before) if before else "(발견된 위험 요소 없음)"
@@ -972,6 +973,13 @@ class MainWindow(QMainWindow):
             text = "글자 정보가 없는 PDF (스캔본·이미지)"
         if s.running:
             text += f"  ({s.searched}/{s.total}쪽 검색)"
+        elif s.truncated:
+            text += " (너무 많아 일부만 표시)"
+            self.search_bar.status.setToolTip(
+                f"결과가 {len(s.hits)}건을 넘어 검색을 멈췄습니다. 검색어를 더 길게 입력하세요."
+            )
+        else:
+            self.search_bar.status.setToolTip("")
         self.search_bar.set_status(text)
 
     def _select_hit(self, hit: Optional[TextHit]):
@@ -1013,7 +1021,7 @@ class MainWindow(QMainWindow):
         for i, h in enumerate(hits[:MAX_RESULT_ITEMS]):
             item = QListWidgetItem(f"{h.row + 1}쪽   {h.marked_context}")
             item.setData(HIT_ROLE, i)
-            item.setToolTip(h.context)
+            item.setToolTip(as_plain_html(h.context))  # PDF 글자가 HTML로 해석되지 않게
             self.result_list.addItem(item)
         if len(hits) > MAX_RESULT_ITEMS:
             more = QListWidgetItem(f"… 외 {len(hits) - MAX_RESULT_ITEMS}건 (F3으로 계속 이동)")

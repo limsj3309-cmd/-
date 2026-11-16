@@ -6,7 +6,9 @@
 # - 외부 Action 은 태그가 아니라 커밋 SHA 로 고정 (태그 바꿔치기 공격 방지)
 # - Python 패키지는 SHA-256 해시로 고정 (requirements-lock.txt)
 # - 빌드 전에 알려진 취약점(pip-audit)과 코드 정적 분석(bandit) 검사 → 문제 있으면 빌드 중단
-# - 저장소 읽기 권한만 사용, 체크아웃 후 토큰을 남기지 않음
+# - 테스트/빌드는 읽기 권한만으로 실행, 체크아웃 후 토큰을 남기지 않음
+# - Releases 업로드는 별도 job 에서만 쓰기 권한 사용. 빌드 코드는 이 권한을 받지 않는다.
+#   업로드 전에 체크섬을 다시 검증하고, 정해진 브랜치에서만 공식 다운로드 파일을 바꾼다.
 name: PDF 편집기 윈도우 빌드
 
 on:
@@ -48,8 +50,8 @@ jobs:
     needs: security-scan
     runs-on: windows-latest
     timeout-minutes: 40
-    permissions:
-      contents: write # Releases 에 설치 파일을 올리기 위해 (이 job 에만 부여)
+    outputs:
+      version: ${{ steps.inno.outputs.version }}
     defaults:
       run:
         shell: pwsh
@@ -88,6 +90,7 @@ jobs:
           "{0:N1} MB" -f ((Get-ChildItem dist\PdfEditor -Recurse | Measure-Object Length -Sum).Sum / 1MB)
 
       - name: 설치 파일 만들기 (Inno Setup)
+        id: inno
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
@@ -100,7 +103,9 @@ jobs:
           if (Test-Path (Join-Path (Split-Path $iscc) "Languages\Korean.isl")) { $defs += "/DKOREAN"; "한국어 설치 화면" } else { "영어 설치 화면 (Korean.isl 없음)" }
           & $iscc @defs installer\setup.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup 실패" }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "버전 형식 오류: $version" }
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: 설치 파일 무인 설치/실행 확인
         run: |
@@ -117,7 +122,8 @@ jobs:
         run: |
           Get-ChildItem dist\PdfEditor-Setup-*.exe | ForEach-Object {
             $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$h  $($_.Name)" | Out-File -FilePath "$($_.FullName).sha256" -Encoding ascii
+            # 리눅스 sha256sum 형식, 줄바꿈 LF (release job 에서 sha256sum --check 로 재검증)
+            [IO.File]::WriteAllText("$($_.FullName).sha256", "$h  $($_.Name)`n", [Text.Encoding]::ASCII)
             "{0}  {1:N1} MB  sha256={2}" -f $_.Name, ($_.Length / 1MB), $h
           }
 
@@ -129,25 +135,51 @@ jobs:
             pdf_tool/dist/PdfEditor-Setup-*.exe.sha256
           if-no-files-found: error
 
+  release:
+    # 공식 다운로드 파일은 정해진 브랜치에 push 했을 때만 바꾼다 (실험용 브랜치가 덮어쓰지 않도록)
+    needs: build
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref_name == github.event.repository.default_branch ||
+       github.ref_name == 'claude/trusting-mayer-thzzeo')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # Releases 업로드 (이 job 에만 부여)
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: PdfEditor-Setup-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: 체크섬 재검증
+        working-directory: dist
+        run: |
+          ls -la
+          sha256sum --check --strict PdfEditor-Setup-*.exe.sha256
+
       - name: Releases 에 설치 파일 올리기 (바로 다운로드 링크)
+        working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          $tag = "pdf-editor-v$env:VERSION"
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "버전 형식 오류"; exit 1; }
+          tag="pdf-editor-v$VERSION"
+          hash="$(cut -d' ' -f1 "PdfEditor-Setup-$VERSION.exe.sha256")"
           # 같은 버전을 다시 빌드하면 이전 릴리스를 지우고 최신 빌드로 교체
-          gh release view $tag --repo $env:REPO *> $null
-          if ($LASTEXITCODE -eq 0) { gh release delete $tag --repo $env:REPO --yes --cleanup-tag }
-          $notes = @"
-          ## 설치 방법
-          1. 아래 Assets 에서 **PdfEditor-Setup-$env:VERSION.exe** 를 눌러 다운로드
-          2. 실행 → "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag
+          fi
+          notes="## 설치 방법
+          1. 아래 Assets 에서 **PdfEditor-Setup-$VERSION.exe** 를 눌러 다운로드
+          2. 실행 → \"Windows의 PC 보호\" 창이 뜨면 **추가 정보 → 실행**
           3. 안내에 따라 설치 (관리자 권한 불필요)
 
-          SHA-256: ``$((Get-Content (Get-ChildItem dist\*.sha256 | Select-Object -First 1).FullName).Split(' ')[0])``
-          "@
-          $files = (Get-ChildItem dist\PdfEditor-Setup-*.exe*).FullName
-          gh release create $tag @files --repo $env:REPO --target $env:SHA --title "PDF 편집기 $env:VERSION" --notes $notes --latest
-          if ($LASTEXITCODE -ne 0) { throw "릴리스 생성 실패" }
-          "https://github.com/$env:REPO/releases/tag/$tag"
+          SHA-256: \`$hash\`"
+          gh release create "$tag" "PdfEditor-Setup-$VERSION.exe" "PdfEditor-Setup-$VERSION.exe.sha256" \
+            --repo "$REPO" --target "$SHA" --title "PDF 편집기 $VERSION" --notes "$notes" --latest
+          echo "https://github.com/$REPO/releases/tag/$tag"

@@ -134,3 +134,38 @@ def test_hit_limit_per_page(monkeypatch):
     monkeypatch.setattr(search, "MAX_HITS_PER_PAGE", 5)
     d = _doc(["<p>" + "가 " * 50 + "</p>"])
     assert _count(d, "가") == 5
+
+
+# ---------------------------------------------------------------------------
+# 자원 제한 (보안)
+# ---------------------------------------------------------------------------
+def test_large_page_uses_light_search(monkeypatch, doc):
+    """글자가 아주 많은 페이지는 글자별 위치 정보를 만들지 않는다 (메모리 보호)."""
+    monkeypatch.setattr(search, "MAX_PAGE_CHARS", 10)
+
+    def boom(page):
+        raise AssertionError("큰 페이지에서 글자별 추출을 하면 안 됨")
+
+    monkeypatch.setattr(search, "_extract", boom)
+    hits = search.search_page(doc, PageRef(0), 0, "보고서")
+    assert len(hits) == 1
+    assert hits[0].rect == pytest.approx(tuple(doc[0].search_for("보고서")[0]), abs=0.01)
+
+
+def test_prefilter_skips_heavy_extraction_when_absent(monkeypatch, doc):
+    monkeypatch.setattr(search, "_extract", lambda page: (_ for _ in ()).throw(AssertionError))
+    assert search.search_page(doc, PageRef(0), 0, "없는말") == []
+
+
+def test_prefilter_keeps_line_break_matches(doc):
+    """가벼운 사전 확인이 줄바꿈에 걸친 결과를 놓치지 않는다."""
+    plain = doc[0].get_text("text", flags=search._PLAIN_FLAGS)
+    assert search._pattern("금리는").search(search._fold_plain(plain))
+    assert search._pattern("해외 market rate는 상승").search(search._fold_plain(plain))
+
+
+def test_fold_plain_matches_extract(doc):
+    """사전 확인용 텍스트와 실제 검색용 텍스트가 같은 규칙으로 만들어진다."""
+    page = doc[0]
+    plain = search._fold_plain(page.get_text("text", flags=search._PLAIN_FLAGS))
+    assert plain.rstrip(" \x00") == search._extract(page).folded
