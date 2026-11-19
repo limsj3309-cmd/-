@@ -88,7 +88,7 @@ public class MacroService extends AccessibilityService {
     // 결제 단계 (시간 칸 → [결제 유의사항 팝업 → 확인] → 결제 금액 확인 창 → 결제하기 → 예약 완료)
     private long sheetSeenAt, noticeSeenAt, noticeClosedAt;
     private boolean noticeEverSeen;
-    private int payClicks, noticeClicks;
+    private int payClicks, noticeClicks, afterPayClicks;
     private String lastScreen = "";
     private long screenSince;
     private int sameScreenClicks;
@@ -402,6 +402,7 @@ public class MacroService extends AccessibilityService {
             noticeEverSeen = false;
             payClicks = 0;
             noticeClicks = 0;
+            afterPayClicks = 0;
             confirmClicks = 0;
             nextActionAt = now + 300;
             return;
@@ -591,6 +592,20 @@ public class MacroService extends AccessibilityService {
             }
         }
 
+        // 4-1) 결제하기 뒤에 "결제하시겠습니까?" 같은 확인 창이 더 뜨면 누른다
+        if (payClicks > 0 && afterPayClicks < 3) {
+            N ok = findButton(ns, "확인");
+            if (ok == null) ok = findButton(ns, "예");
+            if (ok == null) ok = findButton(ns, "결제");
+            if (ok != null) {
+                L.i(this, "결제 후 확인 창: " + summary(ns, 10) + " → '" + oneLine(ok.t) + "' 누름");
+                click(ok);
+                afterPayClicks++;
+                nextActionAt = now + 800;
+                return;
+            }
+        }
+
         // 5) 아무 창도 안 뜸
         boolean progressed = sheetSeenAt > 0 || noticeEverSeen || payClicks > 0;
         if (!progressed && now - confirmStartedAt > 2000) {
@@ -620,6 +635,9 @@ public class MacroService extends AccessibilityService {
         L.i(this, "  마지막 화면 글자: " + summary(ns, 40));
         L.i(this, "  걸린 시간: " + (System.currentTimeMillis() - startedAt) / 1000 + "초");
         Notifier.show(this, ok ? "골프 예약 결과" : "골프 예약 실패", msg);
+        try {
+            android.widget.Toast.makeText(this, (ok ? "⛳ " : "⚠ ") + msg, android.widget.Toast.LENGTH_LONG).show();
+        } catch (Exception ignored) { }
         if (!ok) saveDump("자동 저장(실패)");
         boolean close = autoClose;
         stopRun();
