@@ -514,6 +514,10 @@ public class MacroService extends AccessibilityService {
     private static final long AFTER_NOTICE_MS = 500;
 
     private void confirmStep(List<N> ns, long now) {
+        if (now - confirmStartedAt > 15_000) {
+            finish(false, "결제 단계에서 15초 동안 끝나지 않았습니다 — 앱에서 예약 내역을 확인하세요.", ns);
+            return;
+        }
         // 1) 예약 완료 화면
         if (has(ns, "예약을 완료") || hasExact(ns, "예약 완료") || has(ns, "완료하였습니다")) {
             finish(true, "예약 성공! " + target + " (" + chosenRow + ")", ns);
@@ -522,6 +526,13 @@ public class MacroService extends AccessibilityService {
 
         // 2) "결제 유의사항" 팝업 → 잠깐 기다렸다가 [확인]
         boolean notice = has(ns, "결제 유의사항") || (has(ns, "유의사항") && findButton(ns, "확인") != null);
+        // 팝업 [확인]을 이미 눌렀다면, 닫힌 팝업 글자가 화면 정보에 남아 있어도 결제하기로 넘어간다.
+        // (결제하기를 눌렀는데도 진행이 안 되면 그때 한 번 더 확인을 누름)
+        if (notice && noticeClicks > 0) {
+            boolean retry = payClicks > noticeClicks - 1 && noticeClicks < 3
+                    && now - noticeClosedAt > 1500 && findButton(ns, "결제하기") != null;
+            notice = retry;
+        }
         if (notice) {
             if (noticeSeenAt == 0) {
                 noticeSeenAt = now;
@@ -612,9 +623,6 @@ public class MacroService extends AccessibilityService {
             L.i(this, "칸을 눌렀는데 결제 창이 안 뜸 (예약 불가 칸) → 다음 타석");
             phase = PH_PICK;
             return;
-        }
-        if (progressed && now - confirmStartedAt > 15_000) {
-            finish(false, "결제 단계에서 15초 동안 끝나지 않았습니다 — 앱에서 예약 내역을 확인하세요.", ns);
         }
     }
 
