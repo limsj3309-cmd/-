@@ -36,7 +36,8 @@ public class MainActivity extends Activity {
     private TextView status, logView;
     private Switch enabledSw;
     private EditText targetEt, openEt, leadEt, delayEt, testEt, priorityEt;
-    private Switch othersSw;
+    private Switch othersSw, closeSw;
+    private EditText maxTriesEt;
 
     static String fmt(long t) {
         return new SimpleDateFormat("M/d(E) HH:mm:ss", Locale.KOREA).format(new Date(t));
@@ -79,6 +80,12 @@ public class MainActivity extends Activity {
         openEt = field(root, "예약이 열리는 시각 (예: 06:00:00)", p.openTime(), InputType.TYPE_CLASS_DATETIME);
         leadEt = field(root, "몇 초 전에 미리 앱 열기 (기본 60)", String.valueOf(p.leadSec()), InputType.TYPE_CLASS_NUMBER);
         delayEt = field(root, "오픈 후 몇 ms 뒤 새로고침 (기본 150)", String.valueOf(p.clickDelayMs()), InputType.TYPE_CLASS_NUMBER);
+        maxTriesEt = field(root, "최대 시도 횟수 (6시 이후 새로고침 횟수, 기본 5)", String.valueOf(p.maxTries()), InputType.TYPE_CLASS_NUMBER);
+        closeSw = new Switch(this);
+        closeSw.setText("끝나면(성공·실패 모두) 홈으로 나가고 화면 끄기");
+        closeSw.setChecked(p.closeAfter());
+        closeSw.setPadding(0, dp(8), 0, dp(8));
+        root.addView(closeSw, lp());
         button(root, "저장", v -> save(true));
         enabledSw.setOnCheckedChangeListener((CompoundButton bt, boolean on) -> save(false));
 
@@ -148,6 +155,9 @@ public class MainActivity extends Activity {
         java.util.List<Integer> pri = Prefs.parsePriority(priorityEt.getText().toString());
         String priStr = android.text.TextUtils.join(",", pri);
         new Prefs(this).savePriority(priStr, othersSw.isChecked());
+        int maxTries = Math.max(1, Math.min(30, parseInt(maxTriesEt.getText().toString(), 5)));
+        new Prefs(this).saveRunLimits(maxTries, closeSw.isChecked());
+        maxTriesEt.setText(String.valueOf(maxTries));
         priorityEt.setText(priStr);
         targetEt.setText(target);
         openEt.setText(openStr);
@@ -172,7 +182,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (s.isRunning()) s.stopRun();
-        s.startRun(System.currentTimeMillis(), new Prefs(this).testTime(), dry, dry ? "테스트(선택까지)" : "테스트(실제 예약)");
+        s.startRun(System.currentTimeMillis(), new Prefs(this).testTime(), dry, false, dry ? "테스트(선택까지)" : "테스트(실제 예약)");
         MacroService.launchNoktown(this);
     }
 
@@ -201,7 +211,9 @@ public class MainActivity extends Activity {
             sb.append("⏰ 다음 실행: ").append(fmt(p.nextRun()))
                     .append("\n   → ").append(p.openTime()).append(" 에 ").append(p.targetTime()).append(" 칸 예약")
                     .append("\n   → 타석 순서 ").append(p.priority().isEmpty() ? "(없음)" : p.priority())
-                    .append(p.allowOthers() ? " → 그 외" : " 만");
+                    .append(p.allowOthers() ? " → 그 외" : " 만")
+                    .append("\n   → 최대 ").append(p.maxTries()).append("회")
+                    .append(p.closeAfter() ? ", 끝나면 화면 끔" : "");
         } else {
             sb.append("⏸ 자동 예약 꺼짐");
         }

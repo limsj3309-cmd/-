@@ -27,7 +27,7 @@ public class AlarmActivity extends Activity {
             Notifier.show(this, "자동 예약 실패", "접근성 서비스가 꺼져 있습니다. 앱에서 다시 켜 주세요.");
         } else {
             long openAt = Scheduler.openTimeNear(this, now);
-            s.startRun(openAt, p.targetTime(), false, "매일 자동 예약");
+            s.startRun(openAt, p.targetTime(), false, true, "매일 자동 예약");
             MacroService.launchNoktown(this);
         }
         finish();

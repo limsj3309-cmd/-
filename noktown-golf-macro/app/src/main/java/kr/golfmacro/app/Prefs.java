@@ -18,6 +18,13 @@ final class Prefs {
     int clickDelayMs() { return sp.getInt("delay", 150); }
     String testTime() { return sp.getString("test", "21:00"); }
     long nextRun() { return sp.getLong("next", 0); }
+    int maxTries() { return sp.getInt("maxTries", 5); }
+    boolean closeAfter() { return sp.getBoolean("closeAfter", true); }
+
+    void saveRunLimits(int maxTries, boolean closeAfter) {
+        sp.edit().putInt("maxTries", maxTries).putBoolean("closeAfter", closeAfter).apply();
+    }
+
     String priority() { return sp.getString("priority", "6,5,4,3"); }
     boolean allowOthers() { return sp.getBoolean("others", true); }
 

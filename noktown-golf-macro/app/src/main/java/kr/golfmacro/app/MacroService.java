@@ -77,6 +77,8 @@ public class MacroService extends AccessibilityService {
     private long lastPreScrollAt;
     private List<Integer> priority = new ArrayList<>();
     private boolean allowOthers = true;
+    private int maxTries = 5;
+    private boolean autoClose;
     private int confirmClicks;
     private long confirmStartedAt;
     private String lastScreen = "";
@@ -136,7 +138,7 @@ public class MacroService extends AccessibilityService {
      * @param openAt 예약이 열리는 시각(ms). 이 시각 전에는 시간표 화면에서 기다린다.
      * @param dry    true 면 시간 칸 선택까지만 하고 최종 예약 버튼은 누르지 않는다.
      */
-    void startRun(long openAt, String target, boolean dry, String label) {
+    void startRun(long openAt, String target, boolean dry, boolean scheduled, String label) {
         if (running) {
             L.i(this, "이미 실행 중이라 새 실행은 무시합니다.");
             return;
@@ -153,6 +155,8 @@ public class MacroService extends AccessibilityService {
         this.clickDelayMs = p.clickDelayMs();
         this.priority = Prefs.parsePriority(p.priority());
         this.allowOthers = p.allowOthers();
+        this.maxTries = Math.max(1, p.maxTries());
+        this.autoClose = scheduled && p.closeAfter();
         this.phase = PH_PICK;
         this.nextActionAt = now + 1500; // 앱이 뜰 시간
         this.lastRefreshAt = 0;
@@ -178,6 +182,7 @@ public class MacroService extends AccessibilityService {
 
         L.i(this, "▶ 시작 [" + label + "] 목표 " + target + (dry ? " (테스트: 최종 버튼은 안 누름)" : "")
                 + ", 오픈 " + MainActivity.fmtMs(openAt)
+                + ", 최대 " + maxTries + "회"
                 + ", 타석 순서 " + priority + (allowOthers ? " → 그 외 타석" : " (그 외 타석 안 함)"));
         h.removeCallbacksAndMessages(null);
         h.post(this::tick);
@@ -363,6 +368,10 @@ public class MacroService extends AccessibilityService {
             return;
         }
         if (now - lastRefreshAt > 900) {
+            if (refreshCount >= maxTries) {
+                finish(false, maxTries + "회 시도했지만 " + target + " 예약 가능한 칸이 없었습니다. 직접 확인해 보세요.", ns);
+                return;
+            }
             if (!times.isEmpty()) L.i(this, target + " 칸이 " + times.size() + "개 보이지만 모두 선택 불가 → 새로고침");
             else L.i(this, target + " 칸을 찾지 못함 → 새로고침");
             refresh(ns, now);
@@ -377,7 +386,7 @@ public class MacroService extends AccessibilityService {
         scrollTries = 0;
         rowTries.clear();
         nextActionAt = now + 400;
-        if (refreshCount == 1) L.i(this, "새로고침 (오픈 후 " + (now - openAt) + "ms)");
+        L.i(this, "새로고침 " + refreshCount + "/" + maxTries + "회 (오픈 후 " + (now - openAt) + "ms)");
     }
 
     private void confirmStep(List<N> ns, long now) {
@@ -441,7 +450,18 @@ public class MacroService extends AccessibilityService {
         L.i(this, "  걸린 시간: " + (System.currentTimeMillis() - startedAt) / 1000 + "초");
         Notifier.show(this, ok ? "골프 예약 결과" : "골프 예약 실패", msg);
         if (!ok) saveDump("자동 저장(실패)");
+        boolean close = autoClose;
         stopRun();
+        if (close) {
+            // 결과 화면을 잠깐 남겼다가 홈으로 나가고 화면을 끈다
+            h.postDelayed(() -> {
+                performGlobalAction(GLOBAL_ACTION_HOME);
+                h.postDelayed(() -> {
+                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
+                    L.i(this, "홈으로 나가고 화면 끔");
+                }, 800);
+            }, 3000);
+        }
     }
 
     // ---------------------------------------------------------------- screen detection
