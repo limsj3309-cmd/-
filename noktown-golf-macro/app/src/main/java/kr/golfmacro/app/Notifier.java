@@ -39,7 +39,7 @@ final class Notifier {
         } else {
             String next = p.nextRun() > 0 ? MainActivity.fmt(p.nextRun()) : "(알람 권한 확인 필요)";
             b.setContentTitle("⛳ 자동 예약 켜짐")
-                    .setContentText("다음 실행 " + next + " · " + p.targetTime() + " · " + p.priority() + "번 순")
+                    .setContentText("다음 실행 " + next + " · " + p.targetTime() + " · " + p.pickSummary())
                     .addAction(new Notification.Action.Builder(null, "자동 예약 끄기",
                             StopReceiver.pi(c, StopReceiver.ACTION_DISABLE)).build());
         }

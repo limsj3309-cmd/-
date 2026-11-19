@@ -25,6 +25,19 @@ final class Prefs {
         sp.edit().putInt("maxTries", maxTries).putBoolean("closeAfter", closeAfter).apply();
     }
 
+    /** true: 위에서 몇 번째 줄인지로 고름 / false: 타석 번호로 고름 */
+    boolean byPosition() { return sp.getBoolean("byPos", true); }
+    String posPriority() { return sp.getString("posPriority", "3,2,1"); }
+
+    void savePick(boolean byPos, String posPriority) {
+        sp.edit().putBoolean("byPos", byPos).putString("posPriority", posPriority).apply();
+    }
+
+    /** 화면 표시용 한 줄 요약 */
+    String pickSummary() {
+        return byPosition() ? "줄 " + posPriority() + "번째 순" : "타석 " + priority() + "번 순";
+    }
+
     String priority() { return sp.getString("priority", "6,5,4,3"); }
     boolean allowOthers() { return sp.getBoolean("others", true); }
 

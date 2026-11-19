@@ -43,7 +43,8 @@ public class MainActivity extends Activity {
         }
     };
     private EditText targetEt, openEt, leadEt, delayEt, testEt, priorityEt;
-    private Switch othersSw, closeSw;
+    private Switch othersSw, closeSw, posSw;
+    private EditText posEt;
     private EditText maxTriesEt;
 
     static String fmt(long t) {
@@ -95,9 +96,15 @@ public class MainActivity extends Activity {
 
         header(root, "① 자동 예약 설정");
         targetEt = field(root, "예약할 시간 칸 (예: 20:00)", p.targetTime(), InputType.TYPE_CLASS_DATETIME);
-        priorityEt = field(root, "타석 우선순위 (먼저 시도할 순서, 예: 6,5,4,3)", p.priority(), InputType.TYPE_CLASS_TEXT);
+        posSw = new Switch(this);
+        posSw.setText("줄 위치로 고르기 (남은 타석만 보이므로 추천)");
+        posSw.setChecked(p.byPosition());
+        posSw.setPadding(0, dp(8), 0, dp(8));
+        root.addView(posSw, lp());
+        posEt = field(root, "줄 순서: 위에서 몇 번째 줄부터 (예: 3,2,1 = 세번째→두번째→첫번째)", p.posPriority(), InputType.TYPE_CLASS_TEXT);
+        priorityEt = field(root, "타석 번호 순서 (줄 위치 끈 경우, 예: 6,5,4,3)", p.priority(), InputType.TYPE_CLASS_TEXT);
         othersSw = new Switch(this);
-        othersSw.setText("위 타석이 모두 안 되면 다른 타석도 예약");
+        othersSw.setText("위 순서가 모두 안 되면 나머지 줄/타석도 예약");
         othersSw.setChecked(p.allowOthers());
         othersSw.setPadding(0, dp(8), 0, dp(8));
         root.addView(othersSw, lp());
@@ -213,7 +220,7 @@ public class MainActivity extends Activity {
         } else if (p.enabled() && p.nextRun() > 0) {
             color = svc ? Color.parseColor("#1B7F3B") : Color.parseColor("#B3261E");
             text = "✅ 자동 예약 켜짐\n다음 실행: " + fmt(p.nextRun())
-                    + "\n" + p.openTime() + " 오픈 · " + p.targetTime() + " · " + p.priority() + "번 순"
+                    + "\n" + p.openTime() + " 오픈 · " + p.targetTime() + " · " + p.pickSummary()
                     + (svc ? "" : "\n⚠️ 접근성 서비스가 꺼져 있어 실행되지 않습니다!");
         } else if (p.enabled()) {
             color = Color.parseColor("#B3261E");
@@ -245,6 +252,9 @@ public class MainActivity extends Activity {
         java.util.List<Integer> pri = Prefs.parsePriority(priorityEt.getText().toString());
         String priStr = android.text.TextUtils.join(",", pri);
         new Prefs(this).savePriority(priStr, othersSw.isChecked());
+        String posStr = android.text.TextUtils.join(",", Prefs.parsePriority(posEt.getText().toString()));
+        new Prefs(this).savePick(posSw.isChecked(), posStr);
+        posEt.setText(posStr);
         int maxTries = Math.max(1, Math.min(30, parseInt(maxTriesEt.getText().toString(), 5)));
         new Prefs(this).saveRunLimits(maxTries, closeSw.isChecked());
         maxTriesEt.setText(String.valueOf(maxTries));
@@ -299,7 +309,7 @@ public class MainActivity extends Activity {
         sb.append(batt ? "✅ 배터리 최적화 제외됨\n" : "⚠️ 배터리 최적화 중 (제외 권장)\n");
         if (!Scheduler.canExact(this)) sb.append("❌ 정확한 알람 권한 없음\n");
         sb.append("⚙ ").append(p.openTime()).append(" 오픈 · ").append(p.targetTime()).append(" 칸")
-                .append(" · 타석 ").append(p.priority().isEmpty() ? "(없음)" : p.priority())
+                .append(" · ").append(p.pickSummary())
                 .append(p.allowOthers() ? " → 그 외" : " 만")
                 .append(" · 최대 ").append(p.maxTries()).append("회")
                 .append(p.closeAfter() ? " · 끝나면 화면 끔" : "");

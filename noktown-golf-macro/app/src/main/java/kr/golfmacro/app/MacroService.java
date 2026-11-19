@@ -74,11 +74,13 @@ public class MacroService extends AccessibilityService {
     private final java.util.Map<String, Integer> rowTries = new java.util.HashMap<>();
     private long lastPreScrollAt;
     // 이용시간으로 검색 필터
-    private boolean filterActive, needFilterCheck;
+    private boolean filterActive;
     private int filterTries, sheetScrolls, sheetSelects;
     private long lastFilterOpenAt;
     private List<Integer> priority = new ArrayList<>();
     private boolean allowOthers = true;
+    private boolean byPosition = true;
+    private List<Integer> posPriority = new ArrayList<>();
     private int maxTries = 5;
     private boolean autoClose;
     private int confirmClicks;
@@ -171,6 +173,8 @@ public class MacroService extends AccessibilityService {
         this.clickDelayMs = p.clickDelayMs();
         this.priority = Prefs.parsePriority(p.priority());
         this.allowOthers = p.allowOthers();
+        this.byPosition = p.byPosition();
+        this.posPriority = Prefs.parsePriority(p.posPriority());
         this.maxTries = Math.max(1, p.maxTries());
         this.autoClose = scheduled && p.closeAfter();
         this.phase = PH_PICK;
@@ -181,7 +185,6 @@ public class MacroService extends AccessibilityService {
         this.rowTries.clear();
         this.lastPreScrollAt = 0;
         this.filterActive = false;
-        this.needFilterCheck = false;
         this.filterTries = 0;
         this.sheetScrolls = 0;
         this.sheetSelects = 0;
@@ -205,7 +208,8 @@ public class MacroService extends AccessibilityService {
         L.i(this, "▶ 시작 [" + label + "] 목표 " + target + (dry ? " (테스트: 최종 버튼은 안 누름)" : "")
                 + ", 오픈 " + MainActivity.fmtMs(openAt)
                 + ", 최대 " + maxTries + "회"
-                + ", 타석 순서 " + priority + (allowOthers ? " → 그 외 타석" : " (그 외 타석 안 함)"));
+                + ", " + (byPosition ? "줄 순서 " + posPriority + "번째" : "타석 순서 " + priority)
+                + (allowOthers ? " → 그 외" : " (그 외 안 함)"));
         h.removeCallbacksAndMessages(null);
         h.post(this::tick);
         Notifier.updateStatus(this);
@@ -327,7 +331,7 @@ public class MacroService extends AccessibilityService {
                         L.i(this, "시간표 화면 도착. " + MainActivity.fmtMs(openAt) + " 까지 대기");
                         waitLogged = true;
                     }
-                    if (!filterActive) openFilter(ns, now, false);
+                    openFilter(ns, now, false);
                     return;
                 }
                 pickTime(ns, now);
@@ -356,15 +360,15 @@ public class MacroService extends AccessibilityService {
         }
         List<N> times = findTimeCells(ns);
         List<N> labels = rowLabels(ns);
-        // 새로고침 뒤 필터가 풀렸는지 확인 (다른 시간 칸이 보이면 풀린 것)
-        if (needFilterCheck) {
-            needFilterCheck = false;
-            if (filterActive && hasOtherTimes(ns)) {
-                filterActive = false;
-                L.i(this, "새로고침 후 시간 필터가 풀림 → 다시 " + target + " 선택");
-            }
+        // 아래쪽 검색 버튼: 필터 전 "이용시간으로 검색", 필터 후 "20:00 ⌄"
+        N fb = filterButton(ns);
+        filterActive = fb != null && oneLine(fb.t).startsWith(target);
+        if (fb != null) {
+            final Rect fr = fb.r;
+            times.removeIf(x -> x.r.equals(fr)); // 버튼 글자는 시간 칸이 아님
         }
-        // 1) "이용시간으로 검색"으로 목표 시간만 보이게
+        if (!labels.isEmpty()) times.removeIf(x -> labelOf(labels, x) == null); // 줄에 속한 칸만
+        // 1) "이용시간으로 검색"으로 목표 시간에 남은 타석만 보이게
         if (!filterActive && openFilter(ns, now, true)) return;
         // 2) 필터를 못 쓰는 경우에만: 우선순위 줄을 옆으로 끌어서 목표 칸 찾기
         if (!filterActive && scrollToTarget(ns, times, labels, true)) {
@@ -375,8 +379,8 @@ public class MacroService extends AccessibilityService {
         N c = null;
         int bestRank = Integer.MAX_VALUE;
         for (N x : times) {
-            if (!x.enabled || clickableOf(x) == null || tried.contains(cellKey(ns, x))) continue;
-            int rk = rank(rowNoOf(labels, x));
+            if (!x.enabled || tried.contains(cellKey(ns, x))) continue;
+            int rk = rankOfLabel(labels, labelOf(labels, x));
             if (rk >= 0 && rk < bestRank) {
                 bestRank = rk;
                 c = x;
@@ -388,7 +392,8 @@ public class MacroService extends AccessibilityService {
             chosenRow = key;
             preClickTexts = textSet(ns);
             click(c);
-            L.i(this, "✔ " + target + " 칸 누름: " + key + " (오픈 후 " + (now - openAt) + "ms)");
+            L.i(this, "✔ " + target + " 칸 누름: " + key + " (" + (labels.indexOf(labelOf(labels, c)) + 1)
+                    + "번째 줄, 보이는 줄 " + labels.size() + "개, 오픈 후 " + (now - openAt) + "ms)");
             phase = PH_CONFIRM;
             confirmStartedAt = now;
             sheetSeenAt = 0;
@@ -420,8 +425,11 @@ public class MacroService extends AccessibilityService {
     /** "이용시간으로 검색" 버튼을 눌러 시간 목록을 연다. 눌렀으면 true. */
     private boolean openFilter(List<N> ns, long now, boolean log) {
         if (filterTries >= 6 || now - lastFilterOpenAt < 1500) return false;
-        N btn = findContains(ns, "이용시간으로 검색");
-        if (btn == null) btn = findContains(ns, "이용시간");
+        N btn = filterButton(ns);
+        if (btn != null && oneLine(btn.t).startsWith(target)) {
+            filterActive = true; // 이미 목표 시간으로 걸려 있음
+            return false;
+        }
         if (btn == null) {
             if (filterTries == 0 && log) L.i(this, "'이용시간으로 검색' 버튼을 못 찾음 → 옆으로 끌기 방식 사용");
             filterTries = 6;
@@ -430,7 +438,7 @@ public class MacroService extends AccessibilityService {
         filterTries++;
         lastFilterOpenAt = now;
         click(btn);
-        L.i(this, "이용시간으로 검색 누름 (" + filterTries + "번째)");
+        L.i(this, "시간 검색 버튼 누름 '" + oneLine(btn.t) + "' (" + filterTries + "번째)");
         nextActionAt = now + 500;
         return true;
     }
@@ -486,17 +494,6 @@ public class MacroService extends AccessibilityService {
         nextActionAt = now + 450;
     }
 
-    /** 시간표에 목표 시간이 아닌 "HH:MM" 칸이 보이면 true (필터가 안 걸린 상태) */
-    private boolean hasOtherTimes(List<N> ns) {
-        int w = getResources().getDisplayMetrics().widthPixels;
-        for (N x : ns) {
-            String t = oneLine(x.t);
-            if (x.r.left < w * 0.25) continue;
-            if (t.matches("^\\d{1,2}:\\d{2}$") && !t.equals(target)) return true;
-        }
-        return false;
-    }
-
     private void refresh(List<N> ns, long now) {
         N r = findContains(ns, "새로고침");
         if (r != null) click(r);
@@ -504,7 +501,6 @@ public class MacroService extends AccessibilityService {
         lastRefreshAt = now;
         scrollTries = 0;
         rowTries.clear();
-        needFilterCheck = true;
         nextActionAt = now + 400;
         L.i(this, "새로고침 " + refreshCount + "/" + maxTries + "회 (오픈 후 " + (now - openAt) + "ms)");
     }
@@ -854,6 +850,41 @@ public class MacroService extends AccessibilityService {
         return 100 + Math.max(0, rowNo);
     }
 
+    /** 화면 아래 가운데의 시간 검색 버튼 ("이용시간으로 검색" 또는 "20:00 ⌄") */
+    private N filterButton(List<N> ns) {
+        N f = findContains(ns, "이용시간으로 검색");
+        if (f != null) return f;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        N best = null;
+        for (N x : ns) {
+            String t = oneLine(x.t);
+            if (!t.matches("^\\d{1,2}:\\d{2}.{0,3}$")) continue;
+            if (x.r.centerY() < dm.heightPixels * 0.75) continue;
+            if (x.r.left < dm.widthPixels * 0.2 || x.r.right > dm.widthPixels * 0.85) continue;
+            if (best == null || x.r.top > best.r.top) best = x;
+        }
+        return best;
+    }
+
+    /** 시간 칸과 같은 줄의 타석 이름 */
+    private static N labelOf(List<N> labels, N cell) {
+        int cy = cell.r.centerY();
+        for (N lb : labels) {
+            if (Math.abs(lb.r.centerY() - cy) < Math.max(60, lb.r.height())) return lb;
+        }
+        return null;
+    }
+
+    /** 줄의 순위 (작을수록 먼저). 위치 모드면 위에서 몇 번째 줄인지, 아니면 타석 번호로. 제외면 -1 */
+    private int rankOfLabel(List<N> labels, N lb) {
+        if (lb == null) return allowOthers ? 999 : -1;
+        if (!byPosition) return rank(rowNo(lb));
+        int pos = labels.indexOf(lb) + 1; // labels 는 위→아래 정렬
+        int i = posPriority.indexOf(pos);
+        if (i >= 0) return i;
+        return allowOthers ? 100 + pos : -1;
+    }
+
     /** "6골프 타석" → 6, 못 읽으면 -1 */
     private static int rowNo(N label) {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d+)").matcher(oneLine(label.t));
@@ -903,11 +934,11 @@ public class MacroService extends AccessibilityService {
         }
         List<N> order = new ArrayList<>();
         for (N lb : labels) {
-            int rk = rank(rowNo(lb));
+            int rk = rankOfLabel(labels, lb);
             boolean isPri = rk >= 0 && rk < 100;
             if (priorityOnly ? isPri : (rk >= 100)) order.add(lb);
         }
-        order.sort((a, b) -> Integer.compare(rank(rowNo(a)), rank(rowNo(b))));
+        order.sort((a, b) -> Integer.compare(rankOfLabel(labels, a), rankOfLabel(labels, b)));
         for (N lb : order) {
             int cy = lb.r.centerY();
             boolean hasTarget = false;
