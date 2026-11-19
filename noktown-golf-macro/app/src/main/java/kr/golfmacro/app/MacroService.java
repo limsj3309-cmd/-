@@ -508,7 +508,7 @@ public class MacroService extends AccessibilityService {
     /** 팝업이 완전히 뜬 뒤 누르기까지 기다리는 시간 */
     private static final long NOTICE_SETTLE_MS = 600;
     /** 결제 창이 뜬 뒤 유의사항 팝업이 나오길 기다리는 최대 시간 */
-    private static final long NOTICE_WAIT_MS = 1500;
+    private static final long NOTICE_WAIT_MS = 3000;
     /** 팝업을 닫은 뒤 결제하기를 누르기까지 기다리는 시간 */
     private static final long AFTER_NOTICE_MS = 500;
 
