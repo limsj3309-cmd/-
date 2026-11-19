@@ -73,6 +73,8 @@ public class MacroService extends AccessibilityService {
     private long lastRefreshAt;
     private int refreshCount;
     private int scrollTries;
+    private final java.util.Map<String, Integer> rowTries = new java.util.HashMap<>();
+    private long lastPreScrollAt;
     private int confirmClicks;
     private long confirmStartedAt;
     private String lastScreen = "";
@@ -152,6 +154,8 @@ public class MacroService extends AccessibilityService {
         this.lastRefreshAt = 0;
         this.refreshCount = 0;
         this.scrollTries = 0;
+        this.rowTries.clear();
+        this.lastPreScrollAt = 0;
         this.confirmClicks = 0;
         this.lastScreen = "";
         this.screenSince = now;
@@ -288,6 +292,10 @@ public class MacroService extends AccessibilityService {
                         L.i(this, "시간표 화면 도착. " + MainActivity.fmtMs(openAt) + " 까지 대기");
                         waitLogged = true;
                     }
+                    if (now - lastPreScrollAt > 400) {
+                        lastPreScrollAt = now;
+                        scrollToTarget(ns, findTimeCells(ns));
+                    }
                     return;
                 }
                 pickTime(ns, now);
@@ -330,10 +338,8 @@ public class MacroService extends AccessibilityService {
             nextActionAt = now + 300;
             return;
         }
-        if (times.isEmpty() && scrollTries < 8) {
-            scrollTries++;
-            scrollRight(ns);
-            nextActionAt = now + 300;
+        if (scrollToTarget(ns, times)) {
+            nextActionAt = now + 350;
             return;
         }
         if (now - lastRefreshAt > 900) {
@@ -349,6 +355,7 @@ public class MacroService extends AccessibilityService {
         refreshCount++;
         lastRefreshAt = now;
         scrollTries = 0;
+        rowTries.clear();
         nextActionAt = now + 400;
         if (refreshCount == 1) L.i(this, "새로고침 (오픈 후 " + (now - openAt) + "ms)");
     }
@@ -631,29 +638,63 @@ public class MacroService extends AccessibilityService {
         p.moveTo(x1, y1);
         p.lineTo(x2, y2);
         dispatchGesture(new GestureDescription.Builder()
-                .addStroke(new GestureDescription.StrokeDescription(p, 0, 250)).build(), null, null);
+                .addStroke(new GestureDescription.StrokeDescription(p, 0, 180)).build(), null, null);
     }
 
-    /** 시간 칸이 옆으로 숨어 있을 때 오른쪽으로 넘긴다. */
-    private void scrollRight(List<N> ns) {
-        boolean did = false;
+    private static final java.util.regex.Pattern ROW_LABEL =
+            java.util.regex.Pattern.compile("^\\d+\\s*골프\\s*타석.*");
+
+    /** 화면에 보이는 타석 이름들 ("1골프 타석", "9골프 타석 (레슨타석)" …). */
+    private List<N> rowLabels(List<N> ns) {
+        List<N> out = new ArrayList<>();
+        int w = getResources().getDisplayMetrics().widthPixels;
         for (N x : ns) {
-            if (x.scrollable && x.r.width() > x.r.height() * 2) {
-                did |= x.n.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
-            }
+            String t = oneLine(x.t);
+            if (t.length() > 25 || x.r.left > w * 0.4) continue;
+            if (!ROW_LABEL.matcher(t).matches()) continue;
+            boolean dup = false;
+            for (N o : out) if (Math.abs(o.r.centerY() - x.r.centerY()) < 20) dup = true;
+            if (!dup) out.add(x);
         }
-        if (!did) {
-            int w = getResources().getDisplayMetrics().widthPixels;
-            for (N x : ns) {
-                if (x.t.endsWith("타석") || x.t.contains("골프 타석")) {
-                    int y = x.r.centerY();
-                    swipe((int) (w * 0.9), y, (int) (w * 0.4), y);
-                    did = true;
-                    break;
-                }
-            }
+        out.sort((a, b) -> Integer.compare(a.r.top, b.r.top));
+        return out;
+    }
+
+    /**
+     * 목표 시간 칸이 아직 안 보이는 타석 줄을 손가락으로 왼쪽으로 끌어서(드래그) 넘긴다.
+     * 한 번에 한 줄씩, 줄마다 최대 4번. 넘길 게 있으면 true.
+     */
+    private boolean scrollToTarget(List<N> ns, List<N> times) {
+        List<N> labels = rowLabels(ns);
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (labels.isEmpty()) {
+            // 타석 이름을 못 찾으면 예전 방식: 칸이 하나도 안 보일 때만 첫 줄 근처를 넘김
+            if (!times.isEmpty() || scrollTries >= 8) return false;
+            scrollTries++;
+            N any = findContains(ns, "타석");
+            int y = any != null ? any.r.centerY() : (int) (dm.heightPixels * 0.3);
+            swipe((int) (dm.widthPixels * 0.72), y, (int) (dm.widthPixels * 0.05), y);
+            if (scrollTries == 1) L.i(this, target + " 칸이 안 보여서 옆으로 끌기 (타석 이름 못 찾음)");
+            return true;
         }
-        if (scrollTries == 1) L.i(this, target + " 칸이 안 보여서 옆으로 넘김" + (did ? "" : " (넘길 곳 못 찾음)"));
+        for (N lb : labels) {
+            int cy = lb.r.centerY();
+            boolean hasTarget = false;
+            for (N c : times) if (Math.abs(c.r.centerY() - cy) < Math.max(60, lb.r.height())) hasTarget = true;
+            if (hasTarget) continue;
+            String key = oneLine(lb.t);
+            int n = rowTries.getOrDefault(key, 0);
+            if (n >= 4) continue;
+            rowTries.put(key, n + 1);
+            // 시간 칸 영역(타석 이름 오른쪽)에서 왼쪽으로 빠르게 끌기
+            int x1 = (int) (dm.widthPixels * 0.72);
+            int x2 = Math.max(lb.r.right + 10, (int) (dm.widthPixels * 0.05));
+            if (x2 >= x1) x2 = (int) (dm.widthPixels * 0.05);
+            swipe(x1, cy, x2, cy);
+            if (n == 0) L.i(this, "  " + key + ": " + target + " 칸이 안 보여서 왼쪽으로 끌기");
+            return true;
+        }
+        return false;
     }
 
     private static Set<String> textSet(List<N> ns) {
