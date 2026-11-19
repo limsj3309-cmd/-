@@ -45,12 +45,9 @@ public class MacroService extends AccessibilityService {
     private static final int PH_PICK = 0;    // 이동 + 시간 고르기
     private static final int PH_CONFIRM = 1; // 시간 고른 뒤 예약/확인 버튼
 
-    private static final String[] CONFIRM_WORDS = {
-            "예약하기", "예약 하기", "예약신청", "예약 신청", "신청하기", "예약 완료하기",
-            "결제하기", "다음", "확인", "예"
-    };
     private static final String[] SUCCESS_WORDS = {
-            "예약이 완료", "예약 완료", "예약완료", "예약되었습니다", "완료되었습니다", "신청이 완료", "신청되었습니다"
+            "예약을 완료", "완료하였습니다", "예약이 완료", "예약 완료", "예약완료", "예약되었습니다", "완료되었습니다",
+            "신청이 완료", "신청되었습니다"
     };
     private static final String[] FAIL_WORDS = {
             "이미 예약", "마감", "실패", "불가", "초과", "선택할 수 없", "다른 시간"
@@ -81,6 +78,10 @@ public class MacroService extends AccessibilityService {
     private boolean autoClose;
     private int confirmClicks;
     private long confirmStartedAt;
+    // 결제 단계 (시간 칸 → [결제 유의사항 팝업 → 확인] → 결제 금액 확인 창 → 결제하기 → 예약 완료)
+    private long sheetSeenAt, noticeSeenAt, noticeClosedAt;
+    private boolean noticeEverSeen;
+    private int payClicks, noticeClicks;
     private String lastScreen = "";
     private long screenSince;
     private int sameScreenClicks;
@@ -371,6 +372,12 @@ public class MacroService extends AccessibilityService {
             L.i(this, "✔ " + target + " 칸 누름: " + key + " (오픈 후 " + (now - openAt) + "ms)");
             phase = PH_CONFIRM;
             confirmStartedAt = now;
+            sheetSeenAt = 0;
+            noticeSeenAt = 0;
+            noticeClosedAt = 0;
+            noticeEverSeen = false;
+            payClicks = 0;
+            noticeClicks = 0;
             confirmClicks = 0;
             nextActionAt = now + 300;
             return;
@@ -402,17 +409,80 @@ public class MacroService extends AccessibilityService {
         L.i(this, "새로고침 " + refreshCount + "/" + maxTries + "회 (오픈 후 " + (now - openAt) + "ms)");
     }
 
+    /** 팝업이 완전히 뜬 뒤 누르기까지 기다리는 시간 */
+    private static final long NOTICE_SETTLE_MS = 600;
+    /** 결제 창이 뜬 뒤 유의사항 팝업이 나오길 기다리는 최대 시간 */
+    private static final long NOTICE_WAIT_MS = 1500;
+    /** 팝업을 닫은 뒤 결제하기를 누르기까지 기다리는 시간 */
+    private static final long AFTER_NOTICE_MS = 500;
+
     private void confirmStep(List<N> ns, long now) {
+        // 1) 예약 완료 화면
+        if (has(ns, "예약을 완료") || hasExact(ns, "예약 완료") || has(ns, "완료하였습니다")) {
+            finish(true, "예약 성공! " + target + " (" + chosenRow + ")", ns);
+            return;
+        }
+
+        // 2) "결제 유의사항" 팝업 → 잠깐 기다렸다가 [확인]
+        boolean notice = has(ns, "결제 유의사항") || (has(ns, "유의사항") && findButton(ns, "확인") != null);
+        if (notice) {
+            if (noticeSeenAt == 0) {
+                noticeSeenAt = now;
+                noticeEverSeen = true;
+                L.i(this, "유의사항 팝업 뜸 → " + NOTICE_SETTLE_MS + "ms 뒤 확인");
+            }
+            if (now - noticeSeenAt < NOTICE_SETTLE_MS) return;
+            N ok = findButton(ns, "확인");
+            if (ok != null && noticeClicks < 4) {
+                click(ok);
+                noticeClicks++;
+                noticeClosedAt = now;
+                noticeSeenAt = 0;
+                nextActionAt = now + AFTER_NOTICE_MS;
+            }
+            return;
+        }
+        noticeSeenAt = 0;
+
+        // 3) "결제 금액을 확인해 주세요" 창 → 시간 확인 → [결제하기]
+        N pay = findButton(ns, "결제하기");
+        boolean sheet = has(ns, "결제 금액") || (pay != null && has(ns, "이용시간"));
+        if (sheet && pay != null) {
+            if (sheetSeenAt == 0) {
+                sheetSeenAt = now;
+                L.i(this, "결제 확인 창 뜸: " + summary(ns, 12));
+                if (sheetShowsOtherTime(ns)) {
+                    L.i(this, "⚠ 결제 창 시간이 " + target + " 이 아님 → 닫고 다시 고르기");
+                    performGlobalAction(GLOBAL_ACTION_BACK);
+                    phase = PH_PICK;
+                    nextActionAt = now + 600;
+                    return;
+                }
+            }
+            // 유의사항 팝업이 뒤늦게 뜰 수 있으니 잠깐 기다린다
+            if (!noticeEverSeen && now - sheetSeenAt < NOTICE_WAIT_MS) return;
+            if (noticeClosedAt > 0 && now - noticeClosedAt < AFTER_NOTICE_MS) return;
+            if (dry) {
+                finish(true, "[테스트 성공] " + target + " 칸 선택 → 유의사항 "
+                        + (noticeEverSeen ? "확인" : "(안 뜸)") + " → 결제 창까지 왔습니다 (" + chosenRow
+                        + "). 테스트라 '결제하기'는 누르지 않았습니다.", ns);
+                return;
+            }
+            if (payClicks >= 3) {
+                finish(false, "'결제하기'를 3번 눌렀지만 완료 화면이 안 나왔습니다. 앱에서 예약 내역을 확인하세요.", ns);
+                return;
+            }
+            click(pay);
+            payClicks++;
+            L.i(this, "결제하기 누름 (" + payClicks + "번째, 오픈 후 " + (now - openAt) + "ms)");
+            nextActionAt = now + 900;
+            return;
+        }
+
+        // 4) 실패 안내 팝업 (이미 예약됨 등)
         Set<String> texts = textSet(ns);
         Set<String> fresh = new HashSet<>(texts);
         fresh.removeAll(preClickTexts);
-
-        for (String t : fresh) {
-            if (containsAny(t, SUCCESS_WORDS)) {
-                finish(true, "예약 성공! " + target + " (" + chosenRow + ")", ns);
-                return;
-            }
-        }
         for (String t : fresh) {
             if (containsAny(t, FAIL_WORDS)) {
                 L.i(this, "실패 안내: " + t.replace('\n', ' '));
@@ -420,41 +490,33 @@ public class MacroService extends AccessibilityService {
                 if (close == null) close = findButton(ns, "닫기");
                 if (close != null) click(close);
                 phase = PH_PICK;
-                nextActionAt = now + 500;
+                nextActionAt = now + 600;
                 return;
             }
         }
 
-        N btn = findConfirmButton(ns);
-        if (btn != null) {
-            if (dry) {
-                finish(true, "[테스트 성공] " + target + " 칸 선택 완료 (" + chosenRow + "). 다음 버튼 '"
-                        + oneLine(btn.t) + "' 찾음 — 테스트라 누르지 않았습니다.", ns);
-                return;
-            }
-            if (confirmClicks >= 6) {
-                finish(false, "버튼을 6번 눌렀지만 완료 문구를 못 찾았습니다. 앱에서 예약 내역을 확인하세요.", ns);
-                return;
-            }
-            preClickTexts = texts;
-            click(btn);
-            confirmClicks++;
-            L.i(this, "버튼 누름: '" + oneLine(btn.t) + "'");
-            nextActionAt = now + 700;
-            return;
-        }
-
-        if (confirmClicks == 0 && now - confirmStartedAt > 1500) {
-            L.i(this, "칸을 눌렀는데 반응 없음 → 다른 타석 시도");
+        // 5) 아무 창도 안 뜸
+        boolean progressed = sheetSeenAt > 0 || noticeEverSeen || payClicks > 0;
+        if (!progressed && now - confirmStartedAt > 2000) {
+            L.i(this, "칸을 눌렀는데 결제 창이 안 뜸 (예약 불가 칸) → 다음 타석");
             phase = PH_PICK;
             return;
         }
-        if (confirmClicks > 0 && now - confirmStartedAt > 10_000) {
-            String s = summary(ns, 30);
-            boolean likelyDone = !s.contains("새로고침");
-            finish(likelyDone, (likelyDone ? "예약된 것 같습니다" : "결과 확인 필요")
-                    + " — 앱에서 예약 내역을 확인하세요.", ns);
+        if (progressed && now - confirmStartedAt > 15_000) {
+            finish(false, "결제 단계에서 15초 동안 끝나지 않았습니다 — 앱에서 예약 내역을 확인하세요.", ns);
         }
+    }
+
+    /** 결제 창에 "HH:MM ~ HH:MM" 이 있는데 목표 시간으로 시작하는 게 하나도 없으면 true */
+    private boolean sheetShowsOtherTime(List<N> ns) {
+        boolean anyRange = false;
+        for (N x : ns) {
+            String t = oneLine(x.t);
+            if (!t.matches("^\\d{1,2}:\\d{2}\\s*~.*")) continue;
+            anyRange = true;
+            if (t.startsWith(target)) return false;
+        }
+        return anyRange;
     }
 
     private void finish(boolean ok, String msg, List<N> ns) {
@@ -525,20 +587,6 @@ public class MacroService extends AccessibilityService {
             }
         }
         return target + "@" + cell.r.toShortString();
-    }
-
-    private N findConfirmButton(List<N> ns) {
-        int screenH = getResources().getDisplayMetrics().heightPixels;
-        for (String w : CONFIRM_WORDS) {
-            for (N x : ns) {
-                if (!x.enabled) continue;
-                if (!oneLine(x.t).replace(" ", "").equals(w.replace(" ", ""))) continue;
-                if (x.r.centerY() < screenH * 0.12) continue; // 화면 맨 위 제목 제외
-                if (clickableOf(x) == null) continue;
-                return x;
-            }
-        }
-        return null;
     }
 
     private boolean closePopup(List<N> ns) {
