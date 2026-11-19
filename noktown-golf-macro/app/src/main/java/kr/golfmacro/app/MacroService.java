@@ -77,6 +77,7 @@ public class MacroService extends AccessibilityService {
     private long confirmStartedAt;
     private String lastScreen = "";
     private long screenSince;
+    private int sameScreenClicks;
     private long lastSeenAppAt;
     private int relaunches;
     private boolean waitLogged;
@@ -153,6 +154,7 @@ public class MacroService extends AccessibilityService {
         this.confirmClicks = 0;
         this.lastScreen = "";
         this.screenSince = now;
+        this.sameScreenClicks = 0;
         this.lastSeenAppAt = now;
         this.relaunches = 0;
         this.waitLogged = false;
@@ -235,6 +237,7 @@ public class MacroService extends AccessibilityService {
             if (screen.equals(S_UNKNOWN)) L.i(this, "  보이는 글자: " + summary(ns, 25));
             lastScreen = screen;
             screenSince = now;
+            sameScreenClicks = 0;
         }
 
         boolean open = now >= openAt + clickDelayMs;
@@ -400,7 +403,7 @@ public class MacroService extends AccessibilityService {
     private String detect(List<N> ns) {
         if (has(ns, "원하는 타석") || (has(ns, "새로고침") && has(ns, "타석"))) return S_GRID;
         if (has(ns, "일일타석 예약")) return S_SHEET;
-        if (has(ns, "스크린 골프") && findButton(ns, "예약하기") != null) return S_GOLF;
+        if (has(ns, "스크린 골프") && hasExact(ns, "예약하기")) return S_GOLF;
         if (has(ns, "피트니스") || hasExact(ns, "시설 예약")) {
             if (findGolfCard(ns) != null) return S_COMMUNITY;
         }
@@ -535,13 +538,18 @@ public class MacroService extends AccessibilityService {
         return null;
     }
 
-    /** 글자가 정확히 s 인, 누를 수 있는 요소. 여러 개면 화면 아래쪽(버튼) 우선. */
+    /** 글자가 정확히 s 인 요소. 누를 수 있는 것 우선, 그다음 화면 아래쪽(버튼) 우선. */
     private N findButton(List<N> ns, String s) {
         N best = null;
+        boolean bestClickable = false;
         for (N x : ns) {
             if (!oneLine(x.t).replace(" ", "").equals(s.replace(" ", ""))) continue;
-            if (clickableOf(x) == null) continue;
-            if (best == null || x.r.top > best.r.top) best = x;
+            if (x.r.width() <= 0 || x.r.height() <= 0) continue;
+            boolean c = clickableOf(x) != null;
+            if (best == null || (c && !bestClickable) || (c == bestClickable && x.r.top > best.r.top)) {
+                best = x;
+                bestClickable = c;
+            }
         }
         return best;
     }
@@ -571,10 +579,23 @@ public class MacroService extends AccessibilityService {
         return null;
     }
 
+    /**
+     * 같은 화면에서 누르기가 반복되면(=앞의 누르기가 안 먹힘) 방식을 번갈아 쓴다:
+     * 0,2,4…번째는 접근성 클릭 명령, 1,3,5…번째는 손가락 터치(제스처).
+     */
     private void click(N x) {
-        AccessibilityNodeInfo c = clickableOf(x);
-        boolean ok = c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-        if (!ok) tap(x.r.centerX(), x.r.centerY());
+        int k = sameScreenClicks++;
+        String how;
+        if (k % 2 == 1) {
+            tap(x.r.centerX(), x.r.centerY());
+            how = "터치";
+        } else {
+            AccessibilityNodeInfo c = clickableOf(x);
+            boolean ok = c != null && c.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+            if (!ok) tap(x.r.centerX(), x.r.centerY());
+            how = ok ? "클릭" : "터치";
+        }
+        if (k < 6) L.i(this, "  누름(" + how + "): '" + oneLine(x.t) + "' " + x.r.toShortString());
     }
 
     private void tap(int x, int y) {
