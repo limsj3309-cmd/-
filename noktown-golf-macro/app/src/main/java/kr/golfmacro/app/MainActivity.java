@@ -35,7 +35,8 @@ public class MainActivity extends Activity {
 
     private TextView status, logView;
     private Switch enabledSw;
-    private EditText targetEt, openEt, leadEt, delayEt, testEt;
+    private EditText targetEt, openEt, leadEt, delayEt, testEt, priorityEt;
+    private Switch othersSw;
 
     static String fmt(long t) {
         return new SimpleDateFormat("M/d(E) HH:mm:ss", Locale.KOREA).format(new Date(t));
@@ -69,6 +70,12 @@ public class MainActivity extends Activity {
         enabledSw.setPadding(0, dp(8), 0, dp(8));
         root.addView(enabledSw, lp());
         targetEt = field(root, "예약할 시간 칸 (예: 20:00)", p.targetTime(), InputType.TYPE_CLASS_DATETIME);
+        priorityEt = field(root, "타석 우선순위 (먼저 시도할 순서, 예: 6,5,4,3)", p.priority(), InputType.TYPE_CLASS_TEXT);
+        othersSw = new Switch(this);
+        othersSw.setText("위 타석이 모두 안 되면 다른 타석도 예약");
+        othersSw.setChecked(p.allowOthers());
+        othersSw.setPadding(0, dp(8), 0, dp(8));
+        root.addView(othersSw, lp());
         openEt = field(root, "예약이 열리는 시각 (예: 06:00:00)", p.openTime(), InputType.TYPE_CLASS_DATETIME);
         leadEt = field(root, "몇 초 전에 미리 앱 열기 (기본 60)", String.valueOf(p.leadSec()), InputType.TYPE_CLASS_NUMBER);
         delayEt = field(root, "오픈 후 몇 ms 뒤 새로고침 (기본 150)", String.valueOf(p.clickDelayMs()), InputType.TYPE_CLASS_NUMBER);
@@ -138,6 +145,10 @@ public class MainActivity extends Activity {
         delay = Math.max(0, Math.min(5000, delay));
         String openStr = String.format(Locale.US, "%02d:%02d:%02d", open[0], open[1], open[2]);
         new Prefs(this).save(enabledSw.isChecked(), target, openStr, lead, delay, test);
+        java.util.List<Integer> pri = Prefs.parsePriority(priorityEt.getText().toString());
+        String priStr = android.text.TextUtils.join(",", pri);
+        new Prefs(this).savePriority(priStr, othersSw.isChecked());
+        priorityEt.setText(priStr);
         targetEt.setText(target);
         openEt.setText(openStr);
         leadEt.setText(String.valueOf(lead));
@@ -188,7 +199,9 @@ public class MainActivity extends Activity {
         if (!Scheduler.canExact(this)) sb.append("❌ 정확한 알람 권한 없음\n");
         if (p.enabled() && p.nextRun() > 0) {
             sb.append("⏰ 다음 실행: ").append(fmt(p.nextRun()))
-                    .append("\n   → ").append(p.openTime()).append(" 에 ").append(p.targetTime()).append(" 칸 예약");
+                    .append("\n   → ").append(p.openTime()).append(" 에 ").append(p.targetTime()).append(" 칸 예약")
+                    .append("\n   → 타석 순서 ").append(p.priority().isEmpty() ? "(없음)" : p.priority())
+                    .append(p.allowOthers() ? " → 그 외" : " 만");
         } else {
             sb.append("⏸ 자동 예약 꺼짐");
         }

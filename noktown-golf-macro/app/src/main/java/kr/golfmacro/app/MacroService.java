@@ -75,6 +75,8 @@ public class MacroService extends AccessibilityService {
     private int scrollTries;
     private final java.util.Map<String, Integer> rowTries = new java.util.HashMap<>();
     private long lastPreScrollAt;
+    private List<Integer> priority = new ArrayList<>();
+    private boolean allowOthers = true;
     private int confirmClicks;
     private long confirmStartedAt;
     private String lastScreen = "";
@@ -149,6 +151,8 @@ public class MacroService extends AccessibilityService {
         this.startedAt = now;
         this.deadline = Math.max(openAt, now) + 60_000L;
         this.clickDelayMs = p.clickDelayMs();
+        this.priority = Prefs.parsePriority(p.priority());
+        this.allowOthers = p.allowOthers();
         this.phase = PH_PICK;
         this.nextActionAt = now + 1500; // 앱이 뜰 시간
         this.lastRefreshAt = 0;
@@ -173,7 +177,8 @@ public class MacroService extends AccessibilityService {
         wl.acquire(4 * 60_000L);
 
         L.i(this, "▶ 시작 [" + label + "] 목표 " + target + (dry ? " (테스트: 최종 버튼은 안 누름)" : "")
-                + ", 오픈 " + MainActivity.fmtMs(openAt));
+                + ", 오픈 " + MainActivity.fmtMs(openAt)
+                + ", 타석 순서 " + priority + (allowOthers ? " → 그 외 타석" : " (그 외 타석 안 함)"));
         h.removeCallbacksAndMessages(null);
         h.post(this::tick);
     }
@@ -294,7 +299,9 @@ public class MacroService extends AccessibilityService {
                     }
                     if (now - lastPreScrollAt > 400) {
                         lastPreScrollAt = now;
-                        scrollToTarget(ns, findTimeCells(ns));
+                        List<N> lbs = rowLabels(ns);
+                        List<N> tc = findTimeCells(ns);
+                        if (!scrollToTarget(ns, tc, lbs, true) && allowOthers) scrollToTarget(ns, tc, lbs, false);
                     }
                     return;
                 }
@@ -320,12 +327,24 @@ public class MacroService extends AccessibilityService {
             return;
         }
         List<N> times = findTimeCells(ns);
-        List<N> cands = new ArrayList<>();
-        for (N x : times) {
-            if (x.enabled && clickableOf(x) != null && !tried.contains(cellKey(ns, x))) cands.add(x);
+        List<N> labels = rowLabels(ns);
+        // 1) 우선순위 타석 중 아직 목표 칸이 안 보이는 줄부터 끌어서 넘긴다
+        if (scrollToTarget(ns, times, labels, true)) {
+            nextActionAt = now + 350;
+            return;
         }
-        if (!cands.isEmpty()) {
-            N c = cands.get(0);
+        // 2) 보이는 칸 중 우선순위가 가장 높은 것
+        N c = null;
+        int bestRank = Integer.MAX_VALUE;
+        for (N x : times) {
+            if (!x.enabled || clickableOf(x) == null || tried.contains(cellKey(ns, x))) continue;
+            int rk = rank(rowNoOf(labels, x));
+            if (rk >= 0 && rk < bestRank) {
+                bestRank = rk;
+                c = x;
+            }
+        }
+        if (c != null) {
             String key = cellKey(ns, c);
             tried.add(key);
             chosenRow = key;
@@ -338,7 +357,8 @@ public class MacroService extends AccessibilityService {
             nextActionAt = now + 300;
             return;
         }
-        if (scrollToTarget(ns, times)) {
+        // 3) 우선순위 타석이 모두 안 되면 나머지 타석도 넘겨 본다
+        if (allowOthers && scrollToTarget(ns, times, labels, false)) {
             nextActionAt = now + 350;
             return;
         }
@@ -644,6 +664,29 @@ public class MacroService extends AccessibilityService {
     private static final java.util.regex.Pattern ROW_LABEL =
             java.util.regex.Pattern.compile("^\\d+\\s*골프\\s*타석.*");
 
+    /** 타석 번호 → 순위 (작을수록 먼저). 우선순위 목록 밖은 100+번호, 허용 안 하면 -1. */
+    private int rank(int rowNo) {
+        int i = priority.indexOf(rowNo);
+        if (i >= 0) return i;
+        if (!allowOthers) return -1;
+        return 100 + Math.max(0, rowNo);
+    }
+
+    /** "6골프 타석" → 6, 못 읽으면 -1 */
+    private static int rowNo(N label) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(\\d+)").matcher(oneLine(label.t));
+        return m.find() ? Integer.parseInt(m.group(1)) : -1;
+    }
+
+    /** 시간 칸이 속한 줄의 타석 번호, 못 찾으면 -1 */
+    private static int rowNoOf(List<N> labels, N cell) {
+        int cy = cell.r.centerY();
+        for (N lb : labels) {
+            if (Math.abs(lb.r.centerY() - cy) < Math.max(60, lb.r.height())) return rowNo(lb);
+        }
+        return -1;
+    }
+
     /** 화면에 보이는 타석 이름들 ("1골프 타석", "9골프 타석 (레슨타석)" …). */
     private List<N> rowLabels(List<N> ns) {
         List<N> out = new ArrayList<>();
@@ -664,12 +707,11 @@ public class MacroService extends AccessibilityService {
      * 목표 시간 칸이 아직 안 보이는 타석 줄을 손가락으로 왼쪽으로 끌어서(드래그) 넘긴다.
      * 한 번에 한 줄씩, 줄마다 최대 4번. 넘길 게 있으면 true.
      */
-    private boolean scrollToTarget(List<N> ns, List<N> times) {
-        List<N> labels = rowLabels(ns);
+    private boolean scrollToTarget(List<N> ns, List<N> times, List<N> labels, boolean priorityOnly) {
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         if (labels.isEmpty()) {
             // 타석 이름을 못 찾으면 예전 방식: 칸이 하나도 안 보일 때만 첫 줄 근처를 넘김
-            if (!times.isEmpty() || scrollTries >= 8) return false;
+            if (!priorityOnly || !times.isEmpty() || scrollTries >= 8) return false;
             scrollTries++;
             N any = findContains(ns, "타석");
             int y = any != null ? any.r.centerY() : (int) (dm.heightPixels * 0.3);
@@ -677,7 +719,14 @@ public class MacroService extends AccessibilityService {
             if (scrollTries == 1) L.i(this, target + " 칸이 안 보여서 옆으로 끌기 (타석 이름 못 찾음)");
             return true;
         }
+        List<N> order = new ArrayList<>();
         for (N lb : labels) {
+            int rk = rank(rowNo(lb));
+            boolean isPri = rk >= 0 && rk < 100;
+            if (priorityOnly ? isPri : (rk >= 100)) order.add(lb);
+        }
+        order.sort((a, b) -> Integer.compare(rank(rowNo(a)), rank(rowNo(b))));
+        for (N lb : order) {
             int cy = lb.r.centerY();
             boolean hasTarget = false;
             for (N c : times) if (Math.abs(c.r.centerY() - cy) < Math.max(60, lb.r.height())) hasTarget = true;

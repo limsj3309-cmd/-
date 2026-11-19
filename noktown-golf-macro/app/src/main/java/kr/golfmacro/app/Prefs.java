@@ -18,6 +18,26 @@ final class Prefs {
     int clickDelayMs() { return sp.getInt("delay", 150); }
     String testTime() { return sp.getString("test", "21:00"); }
     long nextRun() { return sp.getLong("next", 0); }
+    String priority() { return sp.getString("priority", "6,5,4,3"); }
+    boolean allowOthers() { return sp.getBoolean("others", true); }
+
+    void savePriority(String priority, boolean others) {
+        sp.edit().putString("priority", priority).putBoolean("others", others).apply();
+    }
+
+    /** "6,5 4/3" → [6,5,4,3] */
+    static java.util.List<Integer> parsePriority(String s) {
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        if (s == null) return out;
+        for (String t : s.split("[^0-9]+")) {
+            if (t.isEmpty()) continue;
+            try {
+                int v = Integer.parseInt(t);
+                if (!out.contains(v)) out.add(v);
+            } catch (NumberFormatException ignored) { }
+        }
+        return out;
+    }
 
     void save(boolean enabled, String target, String open, int lead, int delay, String test) {
         sp.edit()
