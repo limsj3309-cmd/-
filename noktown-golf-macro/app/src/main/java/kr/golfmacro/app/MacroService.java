@@ -39,6 +39,7 @@ public class MacroService extends AccessibilityService {
     private static final String S_GOLF = "골프연습장 상세";
     private static final String S_SHEET = "서비스 선택창";
     private static final String S_GRID = "타석/시간 선택";
+    private static final String S_TIMESHEET = "이용시간 검색창";
     private static final String S_UNKNOWN = "알 수 없는 화면";
 
     // 단계
@@ -72,6 +73,10 @@ public class MacroService extends AccessibilityService {
     private int scrollTries;
     private final java.util.Map<String, Integer> rowTries = new java.util.HashMap<>();
     private long lastPreScrollAt;
+    // 이용시간으로 검색 필터
+    private boolean filterActive, needFilterCheck;
+    private int filterTries, sheetScrolls, sheetSelects;
+    private long lastFilterOpenAt;
     private List<Integer> priority = new ArrayList<>();
     private boolean allowOthers = true;
     private int maxTries = 5;
@@ -175,6 +180,12 @@ public class MacroService extends AccessibilityService {
         this.scrollTries = 0;
         this.rowTries.clear();
         this.lastPreScrollAt = 0;
+        this.filterActive = false;
+        this.needFilterCheck = false;
+        this.filterTries = 0;
+        this.sheetScrolls = 0;
+        this.sheetSelects = 0;
+        this.lastFilterOpenAt = 0;
         this.confirmClicks = 0;
         this.lastScreen = "";
         this.screenSince = now;
@@ -316,15 +327,13 @@ public class MacroService extends AccessibilityService {
                         L.i(this, "시간표 화면 도착. " + MainActivity.fmtMs(openAt) + " 까지 대기");
                         waitLogged = true;
                     }
-                    if (now - lastPreScrollAt > 400) {
-                        lastPreScrollAt = now;
-                        List<N> lbs = rowLabels(ns);
-                        List<N> tc = findTimeCells(ns);
-                        if (!scrollToTarget(ns, tc, lbs, true) && allowOthers) scrollToTarget(ns, tc, lbs, false);
-                    }
+                    if (!filterActive) openFilter(ns, now, false);
                     return;
                 }
                 pickTime(ns, now);
+                break;
+            case S_TIMESHEET:
+                timeSheetStep(ns, now);
                 break;
             default:
                 if (closePopup(ns)) {
@@ -347,8 +356,18 @@ public class MacroService extends AccessibilityService {
         }
         List<N> times = findTimeCells(ns);
         List<N> labels = rowLabels(ns);
-        // 1) 우선순위 타석 중 아직 목표 칸이 안 보이는 줄부터 끌어서 넘긴다
-        if (scrollToTarget(ns, times, labels, true)) {
+        // 새로고침 뒤 필터가 풀렸는지 확인 (다른 시간 칸이 보이면 풀린 것)
+        if (needFilterCheck) {
+            needFilterCheck = false;
+            if (filterActive && hasOtherTimes(ns)) {
+                filterActive = false;
+                L.i(this, "새로고침 후 시간 필터가 풀림 → 다시 " + target + " 선택");
+            }
+        }
+        // 1) "이용시간으로 검색"으로 목표 시간만 보이게
+        if (!filterActive && openFilter(ns, now, true)) return;
+        // 2) 필터를 못 쓰는 경우에만: 우선순위 줄을 옆으로 끌어서 목표 칸 찾기
+        if (!filterActive && scrollToTarget(ns, times, labels, true)) {
             nextActionAt = now + 350;
             return;
         }
@@ -383,7 +402,7 @@ public class MacroService extends AccessibilityService {
             return;
         }
         // 3) 우선순위 타석이 모두 안 되면 나머지 타석도 넘겨 본다
-        if (allowOthers && scrollToTarget(ns, times, labels, false)) {
+        if (!filterActive && allowOthers && scrollToTarget(ns, times, labels, false)) {
             nextActionAt = now + 350;
             return;
         }
@@ -398,6 +417,86 @@ public class MacroService extends AccessibilityService {
         }
     }
 
+    /** "이용시간으로 검색" 버튼을 눌러 시간 목록을 연다. 눌렀으면 true. */
+    private boolean openFilter(List<N> ns, long now, boolean log) {
+        if (filterTries >= 6 || now - lastFilterOpenAt < 1500) return false;
+        N btn = findContains(ns, "이용시간으로 검색");
+        if (btn == null) btn = findContains(ns, "이용시간");
+        if (btn == null) {
+            if (filterTries == 0 && log) L.i(this, "'이용시간으로 검색' 버튼을 못 찾음 → 옆으로 끌기 방식 사용");
+            filterTries = 6;
+            return false;
+        }
+        filterTries++;
+        lastFilterOpenAt = now;
+        click(btn);
+        L.i(this, "이용시간으로 검색 누름 (" + filterTries + "번째)");
+        nextActionAt = now + 500;
+        return true;
+    }
+
+    /** 시간 목록 창: 목표 시간 글자를 찾아 누르고, 안 보이면 목록을 아래로 넘긴다. */
+    private void timeSheetStep(List<N> ns, long now) {
+        if (now - lastFilterOpenAt > 4000) sheetSelects = 0;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        N hit = null;
+        for (N x : ns) {
+            // 목록 항목은 화면 왼쪽에 붙어 있음 (뒤에 깔린 시간표 칸과 구분)
+            if (oneLine(x.t).equals(target) && x.r.left < dm.widthPixels * 0.25) {
+                if (hit == null || x.r.top > hit.r.top) hit = x;
+            }
+        }
+        if (hit != null) {
+            if (++sheetSelects > 3) {
+                // 눌렀는데 창이 안 닫히면 뒤로가기로 닫는다
+                L.i(this, "시간 목록 창이 안 닫혀서 뒤로가기");
+                performGlobalAction(GLOBAL_ACTION_BACK);
+                sheetSelects = 0;
+                filterActive = true;
+                nextActionAt = now + 600;
+                return;
+            }
+            click(hit);
+            filterActive = true;
+            sheetScrolls = 0;
+            L.i(this, "시간 목록에서 " + target + " 선택");
+            nextActionAt = now + 600;
+            return;
+        }
+        if (sheetScrolls >= 8) {
+            L.i(this, "시간 목록에서 " + target + " 을 못 찾음 → 닫고 옆으로 끌기 방식 사용");
+            filterTries = 6;
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            nextActionAt = now + 600;
+            return;
+        }
+        sheetScrolls++;
+        boolean did = false;
+        for (N x : ns) {
+            if (x.scrollable && x.r.height() > dm.heightPixels * 0.3 && x.r.left < dm.widthPixels * 0.2) {
+                did |= x.n.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                if (did) break;
+            }
+        }
+        if (!did) {
+            int x = (int) (dm.widthPixels * 0.3);
+            swipe(x, (int) (dm.heightPixels * 0.8), x, (int) (dm.heightPixels * 0.35));
+        }
+        if (sheetScrolls == 1) L.i(this, "시간 목록에 " + target + " 이 안 보여 아래로 넘김");
+        nextActionAt = now + 450;
+    }
+
+    /** 시간표에 목표 시간이 아닌 "HH:MM" 칸이 보이면 true (필터가 안 걸린 상태) */
+    private boolean hasOtherTimes(List<N> ns) {
+        int w = getResources().getDisplayMetrics().widthPixels;
+        for (N x : ns) {
+            String t = oneLine(x.t);
+            if (x.r.left < w * 0.25) continue;
+            if (t.matches("^\\d{1,2}:\\d{2}$") && !t.equals(target)) return true;
+        }
+        return false;
+    }
+
     private void refresh(List<N> ns, long now) {
         N r = findContains(ns, "새로고침");
         if (r != null) click(r);
@@ -405,6 +504,7 @@ public class MacroService extends AccessibilityService {
         lastRefreshAt = now;
         scrollTries = 0;
         rowTries.clear();
+        needFilterCheck = true;
         nextActionAt = now + 400;
         L.i(this, "새로고침 " + refreshCount + "/" + maxTries + "회 (오픈 후 " + (now - openAt) + "ms)");
     }
@@ -542,6 +642,7 @@ public class MacroService extends AccessibilityService {
     // ---------------------------------------------------------------- screen detection
 
     private String detect(List<N> ns) {
+        if (has(ns, "검색할 시간")) return S_TIMESHEET;
         if (has(ns, "원하는 타석") || (has(ns, "새로고침") && has(ns, "타석"))) return S_GRID;
         if (has(ns, "일일타석 예약")) return S_SHEET;
         if (has(ns, "스크린 골프") && has(ns, "예약하기")) return S_GOLF;
