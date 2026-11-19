@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("취소", null)
                 .show());
         button(root, "10초 뒤 화면 구조 저장", v -> dumpLater());
-        button(root, "저장한 화면 구조 공유", v -> shareFile(new File(getFilesDir(), "dump.txt"), "화면 구조"));
+        button(root, "📤 문제 보고 공유 (기록 + 화면 구조)", v -> shareReport());
 
         header(root, "기록");
         LinearLayout row = new LinearLayout(this);
@@ -225,6 +225,21 @@ public class MainActivity extends Activity {
         } else {
             Toast.makeText(this, "이미 허용되어 있습니다", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void shareReport() {
+        String log = L.read(this);
+        if (log.length() > 15_000) log = log.substring(log.length() - 15_000);
+        String dump = L.readFile(new File(getFilesDir(), "dump.txt"));
+        if (dump.length() > 60_000) dump = dump.substring(0, 60_000) + "\n...(생략)";
+        String ver;
+        try {
+            ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            ver = "?";
+        }
+        shareText("[골프예약 매크로 v" + ver + " 문제 보고]\n\n=== 기록 ===\n" + log
+                + "\n\n=== 화면 구조 ===\n" + (dump.isEmpty() ? "(없음)" : dump), "문제 보고");
     }
 
     private void shareFile(File f, String title) {

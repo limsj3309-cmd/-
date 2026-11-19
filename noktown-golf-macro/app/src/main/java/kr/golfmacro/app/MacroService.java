@@ -78,6 +78,7 @@ public class MacroService extends AccessibilityService {
     private String lastScreen = "";
     private long screenSince;
     private int sameScreenClicks;
+    private boolean stuckDumped;
     private long lastSeenAppAt;
     private int relaunches;
     private boolean waitLogged;
@@ -183,15 +184,19 @@ public class MacroService extends AccessibilityService {
     /** delayMs 뒤 현재 화면 구조를 파일로 저장한다(설정 맞추기용). */
     void dumpLater(long delayMs) {
         h.postDelayed(() -> {
-            String d = dumpTree();
-            try {
-                L.writeFile(new File(getFilesDir(), "dump.txt"), d, false);
-                L.i(this, "화면 구조 저장 완료 (" + d.length() + "자)");
-                Notifier.show(this, "화면 구조 저장 완료", "골프예약 매크로 앱에서 '화면 구조 공유'를 누르세요.");
-            } catch (Exception e) {
-                L.i(this, "화면 구조 저장 실패: " + e);
-            }
+            saveDump("수동 저장");
+            Notifier.show(this, "화면 구조 저장 완료", "골프예약 매크로 앱에서 '문제 보고 공유'를 누르세요.");
         }, delayMs);
+    }
+
+    private void saveDump(String why) {
+        String d = "(" + why + ")\n" + dumpTree();
+        try {
+            L.writeFile(new File(getFilesDir(), "dump.txt"), d, false);
+            L.i(this, "화면 구조 저장 [" + why + "] (" + d.length() + "자)");
+        } catch (Exception e) {
+            L.i(this, "화면 구조 저장 실패: " + e);
+        }
     }
 
     // ---------------------------------------------------------------- main loop
@@ -238,6 +243,13 @@ public class MacroService extends AccessibilityService {
             lastScreen = screen;
             screenSince = now;
             sameScreenClicks = 0;
+            stuckDumped = false;
+        }
+
+        if (!stuckDumped && now - screenSince > 5000 && !screen.equals(S_GRID)) {
+            stuckDumped = true;
+            L.i(this, "⚠ '" + screen + "' 화면에서 5초째 진행 안 됨. 보이는 글자: " + summary(ns, 40));
+            saveDump("자동 저장(멈춤)");
         }
 
         boolean open = now >= openAt + clickDelayMs;
@@ -256,7 +268,13 @@ public class MacroService extends AccessibilityService {
             }
             case S_GOLF: {
                 N btn = findButton(ns, "예약하기");
-                if (btn != null) click(btn);
+                if (btn != null) {
+                    click(btn);
+                } else {
+                    android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                    L.i(this, "  '예약하기' 글자를 못 찾아 화면 아래 가운데를 터치");
+                    tap(dm.widthPixels / 2, (int) (dm.heightPixels * 0.88));
+                }
                 nextActionAt = now + gap;
                 break;
             }
@@ -395,6 +413,7 @@ public class MacroService extends AccessibilityService {
         L.i(this, "  마지막 화면 글자: " + summary(ns, 40));
         L.i(this, "  걸린 시간: " + (System.currentTimeMillis() - startedAt) / 1000 + "초");
         Notifier.show(this, ok ? "골프 예약 결과" : "골프 예약 실패", msg);
+        if (!ok) saveDump("자동 저장(실패)");
         stopRun();
     }
 
@@ -403,7 +422,7 @@ public class MacroService extends AccessibilityService {
     private String detect(List<N> ns) {
         if (has(ns, "원하는 타석") || (has(ns, "새로고침") && has(ns, "타석"))) return S_GRID;
         if (has(ns, "일일타석 예약")) return S_SHEET;
-        if (has(ns, "스크린 골프") && hasExact(ns, "예약하기")) return S_GOLF;
+        if (has(ns, "스크린 골프") && has(ns, "예약하기")) return S_GOLF;
         if (has(ns, "피트니스") || hasExact(ns, "시설 예약")) {
             if (findGolfCard(ns) != null) return S_COMMUNITY;
         }
@@ -515,11 +534,13 @@ public class MacroService extends AccessibilityService {
         }
         x.t = sb.toString().trim();
         node.getBoundsInScreen(x.r);
+        boolean visible = node.isVisibleToUser() && x.r.width() > 0 && x.r.height() > 0
+                && x.r.bottom > 0 && x.r.top < getResources().getDisplayMetrics().heightPixels + 200;
         x.clickable = node.isClickable();
         x.enabled = node.isEnabled();
         x.scrollable = node.isScrollable();
         x.cls = node.getClassName() == null ? "" : node.getClassName().toString();
-        out.add(x);
+        if (visible) out.add(x);
         for (int i = 0; i < node.getChildCount(); i++) walk(node.getChild(i), out, depth + 1);
     }
 
@@ -701,6 +722,7 @@ public class MacroService extends AccessibilityService {
         if (!n.isEnabled()) sb.append(" DISABLED");
         if (n.isSelected()) sb.append(" SELECTED");
         if (n.isScrollable()) sb.append(" SCROLL");
+        if (!n.isVisibleToUser()) sb.append(" HIDDEN");
         sb.append(' ').append(r.toShortString()).append('\n');
         for (int i = 0; i < n.getChildCount(); i++) dumpNode(n.getChild(i), sb, depth + 1);
     }
