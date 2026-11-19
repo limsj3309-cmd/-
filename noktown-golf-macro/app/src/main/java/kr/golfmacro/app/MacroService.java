@@ -134,6 +134,16 @@ public class MacroService extends AccessibilityService {
 
     boolean isRunning() { return running; }
 
+    static boolean runningNow() {
+        MacroService s = instance;
+        return s != null && s.running;
+    }
+
+    static String runLabel() {
+        MacroService s = instance;
+        return s != null && s.running ? s.label : "";
+    }
+
     /**
      * @param openAt 예약이 열리는 시각(ms). 이 시각 전에는 시간표 화면에서 기다린다.
      * @param dry    true 면 시간 칸 선택까지만 하고 최종 예약 버튼은 누르지 않는다.
@@ -186,13 +196,16 @@ public class MacroService extends AccessibilityService {
                 + ", 타석 순서 " + priority + (allowOthers ? " → 그 외 타석" : " (그 외 타석 안 함)"));
         h.removeCallbacksAndMessages(null);
         h.post(this::tick);
+        Notifier.updateStatus(this);
     }
 
     void stopRun() {
+        boolean was = running;
         running = false;
         h.removeCallbacksAndMessages(null);
         if (wl != null && wl.isHeld()) wl.release();
         wl = null;
+        if (was) Notifier.updateStatus(this);
     }
 
     /** delayMs 뒤 현재 화면 구조를 파일로 저장한다(설정 맞추기용). */

@@ -16,8 +16,11 @@ final class L {
     private static final String TAG = "GolfMacro";
     private static final int MAX = 150_000;
 
+    static volatile String last = "";
+
     static synchronized void i(Context c, String msg) {
         Log.i(TAG, msg);
+        last = msg.trim();
         String line = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.KOREA).format(new Date())
                 + "  " + msg + "\n";
         File f = new File(c.getFilesDir(), "log.txt");

@@ -57,6 +57,8 @@ final class Prefs {
                 .apply();
     }
 
+    void setEnabled(boolean on) { sp.edit().putBoolean("enabled", on).apply(); }
+
     void setNextRun(long t) { sp.edit().putLong("next", t).apply(); }
 
     /** "20", "2000", "20:0", "20:00" → "20:00". 잘못되면 null. */

@@ -49,6 +49,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".StopReceiver"
+            android:exported="false" />
+
         <service
             android:name=".MacroService"
             android:exported="true"

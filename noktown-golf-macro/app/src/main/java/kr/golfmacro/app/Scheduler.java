@@ -61,11 +61,13 @@ final class Scheduler {
         if (!p.enabled()) {
             am.cancel(op);
             p.setNextRun(0);
+            Notifier.updateStatus(c);
             return 0;
         }
         if (!canExact(c)) {
             L.i(c, "정확한 알람 권한이 없어 예약하지 못했습니다.");
             p.setNextRun(0);
+            Notifier.updateStatus(c);
             return 0;
         }
         long t = nextTrigger(c, System.currentTimeMillis());
@@ -73,6 +75,7 @@ final class Scheduler {
                 new Intent(c, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         am.setAlarmClock(new AlarmManager.AlarmClockInfo(t, show), op);
         p.setNextRun(t);
+        Notifier.updateStatus(c);
         return t;
     }
 }

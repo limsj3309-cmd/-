@@ -17,7 +17,6 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -33,8 +32,16 @@ import java.util.Locale;
 /** 설정 화면 (코드로 만든 단순한 화면). */
 public class MainActivity extends Activity {
 
-    private TextView status, logView;
-    private Switch enabledSw;
+    private TextView status, logView, stateCard;
+    private Button toggleBtn, stopBtn;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable ticker = new Runnable() {
+        @Override
+        public void run() {
+            refreshState();
+            ui.postDelayed(this, 1000);
+        }
+    };
     private EditText targetEt, openEt, leadEt, delayEt, testEt, priorityEt;
     private Switch othersSw, closeSw;
     private EditText maxTriesEt;
@@ -57,19 +64,36 @@ public class MainActivity extends Activity {
         int pad = dp(16);
         root.setPadding(pad, pad, pad, pad * 2);
 
+        stateCard = new TextView(this);
+        stateCard.setTextSize(18);
+        stateCard.setTextColor(Color.WHITE);
+        stateCard.setPadding(dp(16), dp(16), dp(16), dp(16));
+        root.addView(stateCard, lp());
+
+        toggleBtn = new Button(this);
+        toggleBtn.setTextSize(18);
+        toggleBtn.setAllCaps(false);
+        toggleBtn.setOnClickListener(v -> toggleEnabled());
+        root.addView(toggleBtn, lp());
+
+        stopBtn = new Button(this);
+        stopBtn.setText("⏹ 지금 실행 중인 매크로 멈추기");
+        stopBtn.setAllCaps(false);
+        stopBtn.setOnClickListener(v -> {
+            StopReceiver.stopRunNow(this);
+            refreshState();
+            refreshLog();
+        });
+        root.addView(stopBtn, lp());
+
+        header(root, "점검");
         status = new TextView(this);
-        status.setTextSize(15);
+        status.setTextSize(14);
         status.setPadding(dp(12), dp(12), dp(12), dp(12));
         status.setBackgroundColor(Color.parseColor("#EEF3FF"));
         root.addView(status, lp());
 
         header(root, "① 자동 예약 설정");
-        enabledSw = new Switch(this);
-        enabledSw.setText("매일 자동 예약 켜기");
-        enabledSw.setTextSize(17);
-        enabledSw.setChecked(p.enabled());
-        enabledSw.setPadding(0, dp(8), 0, dp(8));
-        root.addView(enabledSw, lp());
         targetEt = field(root, "예약할 시간 칸 (예: 20:00)", p.targetTime(), InputType.TYPE_CLASS_DATETIME);
         priorityEt = field(root, "타석 우선순위 (먼저 시도할 순서, 예: 6,5,4,3)", p.priority(), InputType.TYPE_CLASS_TEXT);
         othersSw = new Switch(this);
@@ -86,8 +110,7 @@ public class MainActivity extends Activity {
         closeSw.setChecked(p.closeAfter());
         closeSw.setPadding(0, dp(8), 0, dp(8));
         root.addView(closeSw, lp());
-        button(root, "저장", v -> save(true));
-        enabledSw.setOnCheckedChangeListener((CompoundButton bt, boolean on) -> save(false));
+        button(root, "설정 저장", v -> save(true));
 
         header(root, "② 처음 한 번 권한 설정");
         button(root, "접근성 설정 열기 (골프예약 매크로 켜기)", v ->
@@ -136,6 +159,73 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshStatus();
         refreshLog();
+        ui.post(ticker);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        ui.removeCallbacks(ticker);
+    }
+
+    private void toggleEnabled() {
+        Prefs p = new Prefs(this);
+        if (p.enabled()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("자동 예약 끄기")
+                    .setMessage("매일 자동 예약을 끌까요? 다시 켤 때까지 실행되지 않습니다.")
+                    .setPositiveButton("끄기", (d, w) -> {
+                        StopReceiver.disable(this);
+                        refreshStatus();
+                        refreshState();
+                        refreshLog();
+                    })
+                    .setNegativeButton("취소", null)
+                    .show();
+            return;
+        }
+        if (MacroService.instance == null && !accessibilityOn()) {
+            Toast.makeText(this, "먼저 접근성 설정에서 '골프예약 매크로'를 켜 주세요.", Toast.LENGTH_LONG).show();
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            return;
+        }
+        p.setEnabled(true);
+        save(false);
+        if (p.nextRun() > 0) {
+            Toast.makeText(this, "자동 예약 시작! 다음 실행: " + fmt(p.nextRun()), Toast.LENGTH_LONG).show();
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+        }
+    }
+
+    /** 맨 위 큰 상태 카드와 버튼 (1초마다 갱신). */
+    private void refreshState() {
+        Prefs p = new Prefs(this);
+        boolean running = MacroService.runningNow();
+        boolean svc = MacroService.instance != null;
+        String text;
+        int color;
+        if (running) {
+            color = Color.parseColor("#E8710A");
+            text = "▶ 지금 실행 중  (" + MacroService.runLabel() + ")\n최근: " + L.last;
+        } else if (p.enabled() && p.nextRun() > 0) {
+            color = svc ? Color.parseColor("#1B7F3B") : Color.parseColor("#B3261E");
+            text = "✅ 자동 예약 켜짐\n다음 실행: " + fmt(p.nextRun())
+                    + "\n" + p.openTime() + " 오픈 · " + p.targetTime() + " · " + p.priority() + "번 순"
+                    + (svc ? "" : "\n⚠️ 접근성 서비스가 꺼져 있어 실행되지 않습니다!");
+        } else if (p.enabled()) {
+            color = Color.parseColor("#B3261E");
+            text = "⚠️ 켜져 있지만 알람을 걸지 못했습니다\n아래 점검 항목을 확인하세요.";
+        } else {
+            color = Color.parseColor("#5F6368");
+            text = "⏸ 자동 예약 꺼짐\n아래 [자동 예약 시작]을 누르면 매일 자동으로 예약합니다.";
+        }
+        stateCard.setText(text);
+        stateCard.setBackgroundColor(color);
+        toggleBtn.setText(p.enabled() ? "⏸ 자동 예약 끄기" : "▶ 자동 예약 시작");
+        stopBtn.setVisibility(running ? View.VISIBLE : View.GONE);
     }
 
     private void save(boolean toast) {
@@ -151,7 +241,7 @@ public class MainActivity extends Activity {
         lead = Math.max(20, Math.min(600, lead));
         delay = Math.max(0, Math.min(5000, delay));
         String openStr = String.format(Locale.US, "%02d:%02d:%02d", open[0], open[1], open[2]);
-        new Prefs(this).save(enabledSw.isChecked(), target, openStr, lead, delay, test);
+        new Prefs(this).save(new Prefs(this).enabled(), target, openStr, lead, delay, test);
         java.util.List<Integer> pri = Prefs.parsePriority(priorityEt.getText().toString());
         String priStr = android.text.TextUtils.join(",", pri);
         new Prefs(this).savePriority(priStr, othersSw.isChecked());
@@ -166,10 +256,11 @@ public class MainActivity extends Activity {
         testEt.setText(test);
 
         long t = Scheduler.schedule(this);
-        L.i(this, "설정 저장: 켜짐=" + enabledSw.isChecked() + ", 시간칸 " + target + ", 오픈 " + openStr
+        L.i(this, "설정 저장: 켜짐=" + new Prefs(this).enabled() + ", 시간칸 " + target + ", 오픈 " + openStr
                 + ", 다음 실행 " + (t == 0 ? "없음" : fmt(t)));
         if (toast) Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show();
         refreshStatus();
+        refreshState();
         refreshLog();
     }
 
@@ -207,16 +298,11 @@ public class MainActivity extends Activity {
         sb.append(nk ? "✅ 노크타운 앱 확인\n" : "❌ 노크타운 앱을 찾을 수 없음\n");
         sb.append(batt ? "✅ 배터리 최적화 제외됨\n" : "⚠️ 배터리 최적화 중 (제외 권장)\n");
         if (!Scheduler.canExact(this)) sb.append("❌ 정확한 알람 권한 없음\n");
-        if (p.enabled() && p.nextRun() > 0) {
-            sb.append("⏰ 다음 실행: ").append(fmt(p.nextRun()))
-                    .append("\n   → ").append(p.openTime()).append(" 에 ").append(p.targetTime()).append(" 칸 예약")
-                    .append("\n   → 타석 순서 ").append(p.priority().isEmpty() ? "(없음)" : p.priority())
-                    .append(p.allowOthers() ? " → 그 외" : " 만")
-                    .append("\n   → 최대 ").append(p.maxTries()).append("회")
-                    .append(p.closeAfter() ? ", 끝나면 화면 끔" : "");
-        } else {
-            sb.append("⏸ 자동 예약 꺼짐");
-        }
+        sb.append("⚙ ").append(p.openTime()).append(" 오픈 · ").append(p.targetTime()).append(" 칸")
+                .append(" · 타석 ").append(p.priority().isEmpty() ? "(없음)" : p.priority())
+                .append(p.allowOthers() ? " → 그 외" : " 만")
+                .append(" · 최대 ").append(p.maxTries()).append("회")
+                .append(p.closeAfter() ? " · 끝나면 화면 끔" : "");
         status.setText(sb.toString());
     }
 
